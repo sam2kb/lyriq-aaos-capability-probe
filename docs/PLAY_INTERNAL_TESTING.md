@@ -25,6 +25,81 @@ parked AAOS-only app to use `required="true"` on an AAOS-only track.
 The app is not a media, navigation, templated, or communication app. Do not label it as
 one.
 
+## Minimal path to an installable internal test
+
+### 1. Create the upload key (on your own machine)
+
+Never put this key in the repository or send it to an agent.
+
+```sh
+keytool -genkeypair -v \
+  -keystore "$HOME/lyriq-upload.jks" \
+  -alias lyriq-upload \
+  -keyalg RSA -keysize 4096 -validity 10000
+```
+
+Create `keystore.properties` in the checkout (it is git-ignored):
+
+```properties
+storeFile=/home/YOU/lyriq-upload.jks
+storePassword=...
+keyAlias=lyriq-upload
+keyPassword=...
+```
+
+Build and verify the signed bundle:
+
+```sh
+./gradlew clean bundleRelease
+jarsigner -verify -verbose -certs app/build/outputs/bundle/release/app-release.aab
+```
+
+The output should say the JAR is signed. The current checked-in AAB is **unsigned** and
+cannot be uploaded.
+
+### 2. Create the app in Play Console
+
+1. **All apps → Create app**. Use the app name “LYRIQ Probe”, the package
+   `com.sam2kb.lyriqprobe`, and a free app.
+2. Complete **App content** truthfully: utility/diagnostic category, no ads, no account,
+   no data sold; camera/notifications/foreground-service and INTERNET declarations. Use
+   your public privacy URL.
+3. Enable **Play App Signing**; the key above is the upload key, not the app-signing key.
+4. Go to **Advanced settings → Form factors → Add form factor → Android Automotive OS**.
+5. Prefer an **AAOS-only internal-testing track**. The manifest requires
+   `android.hardware.type.automotive`, so this is not a phone app.
+6. If Play asks for AAOS listing images, capture at least two landscape (1024 × 786) and
+   two portrait (800 × 1280) screenshots from an AAOS emulator/vehicle. The repository
+   does not include screenshots.
+
+### 3. Create the internal-testing release
+
+1. **Testing → Internal testing → Create new release**.
+2. Upload the signed `app-release.aab`.
+3. Add release notes (for example, “v1.1.0 AAOS probe — media/LMS readiness; no VPN”).
+4. Save, review, and **Start rollout to Internal testing**.
+5. Open the **Testers** tab, create an email list containing the Google account signed
+   into the LYRIQ, and save it.
+6. Copy the testers opt-in URL. Open it on the LYRIQ, accept the test, then install/update
+   the app from Play Store. The car must be signed into that same tester account and be
+   eligible for the AAOS form factor.
+
+If Play reports the app as incompatible or does not show it on the car, record the exact
+message. The likely causes are a missing AAOS form-factor setup, missing listing images,
+unsupported track/category, or a device eligibility issue. Do not work around a Play
+policy or device restriction by disguising the app category.
+
+### Sideload fallback
+
+For capability testing without Play, install the debug APK while parked:
+
+```sh
+adb install -r app/build/outputs/apk/debug/app-debug.apk
+```
+
+The debug package is `com.sam2kb.lyriqprobe.debug`. This does not test Play distribution
+eligibility.
+
 ## Setup sequence
 
 1. Create the Play Console app with package `com.sam2kb.lyriqprobe`.

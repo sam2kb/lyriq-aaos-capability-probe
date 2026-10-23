@@ -13,7 +13,7 @@ vehicle test.
 | Kotlin | 2.2.21 |
 | Android SDK | platform 36, build-tools 36.0.0, platform-tools 37.0.1 |
 | Host device access | none; no `/dev/kvm` |
-| Source commit | repository HEAD at handoff (`git log -1`) |
+| Source commit | `229c97d34ba314600c2e1bac60d2ffab780bf3c3` (tag `v1.0.0-build.1`) |
 
 ## Commands
 

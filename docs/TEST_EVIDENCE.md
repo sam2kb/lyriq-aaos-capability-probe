@@ -13,7 +13,7 @@ not a vehicle test.
 | Kotlin | 2.2.21 |
 | Android SDK | platform 36, build-tools 36.0.0, platform-tools 37.0.1 |
 | Host device access | none; no `/dev/kvm` |
-| Source commit | tag `v1.1.0-build.1` |
+| Source commit | `d79803aee792c05400cbfbd49ab1a9f685597c44` (tag `v1.1.0-build.1`) |
 
 ## Commands
 

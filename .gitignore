@@ -1,0 +1,17 @@
+.gradle/
+build/
+**/build/
+local.properties
+.idea/
+*.iml
+.DS_Store
+.cache/
+.tmp/
+.build/
+published/
+captures/
+keystore.properties
+*.jks
+*.keystore
+.docker/
+.kotlin/

@@ -125,7 +125,8 @@ fun DashboardScreen(
             Panel(title = "No scan yet", kicker = "Session", accent = Amber) {
                 Text(
                     "Run Quick Scan to inventory permissions, Camera2 IDs, vehicle properties, Android sensors, " +
-                        "storage, connectivity, and VPN authorization state. No camera is opened and no value is written.",
+                        "storage, connectivity, media readiness, and LMS network policy. No camera is opened, " +
+                        "no value is written, and no LAN socket is opened.",
                     style = MaterialTheme.typography.bodyMedium,
                     color = Muted,
                 )
@@ -153,7 +154,8 @@ private fun ParkedAttestationCard(onAttest: (Boolean) -> Unit) {
     Panel(title = "Parked confirmation required", kicker = "Safety gate", accent = Amber) {
         Text(
             "The platform did not expose a usable CarUxRestrictions state. Active camera, sensor, storage, " +
-                "vehicle-value, and VPN tests are disabled until you confirm the vehicle is parked. " +
+                "vehicle-value, media foreground-service, and LMS network tests are disabled until you confirm " +
+                "the vehicle is parked. " +
                 "This confirmation cannot override a restricted state if the platform later reports one.",
             style = MaterialTheme.typography.bodySmall,
             color = Muted,
@@ -336,8 +338,8 @@ private fun ModuleGrid(report: ProbeReport?, onNavigate: (Page) -> Unit) {
     val vehicle = report?.vehicleProperties
     val sensors = report?.androidSensors
     val storage = report?.storage
-    val vpn = report?.vpn
-    val connectivity = report?.connectivity
+    val media = report?.media
+    val lms = report?.lmsNetwork
     val modules = listOf(
         ModuleSummary(
             Page.PERMISSIONS,
@@ -378,16 +380,28 @@ private fun ModuleGrid(report: ProbeReport?, onNavigate: (Page) -> Unit) {
             Teal,
         ),
         ModuleSummary(
-            Page.NETWORK,
-            "Network & VPN",
-            vpn?.authorizationState?.take(17) ?: "—",
+            Page.MEDIA,
+            "Media readiness",
+            media?.let { "${it.mimeSupport.count { entry -> entry.value }}/${it.mimeSupport.size}" } ?: "—",
             when {
-                vpn == null -> "Not scanned"
-                vpn.interfaceEstablished == true -> "Temporary TUN established"
-                vpn.interfaceEstablished == false -> "TUN not established"
-                else -> "VPN consent not yet exercised"
+                media == null -> "Not scanned"
+                media.lastForegroundServiceTest?.started == true -> "mediaPlayback FGS started"
+                media.lastSilentAudioTest?.succeeded == true -> "AudioTrack path verified"
+                else -> "${media.audioDecoders.size} decoders · FGS test not run"
             },
             Blue,
+        ),
+        ModuleSummary(
+            Page.NETWORK,
+            "LMS network",
+            lms?.lastTest?.takeIf { it.isNotEmpty() }?.let { "${it.count { test -> test.connected }}/${it.size}" } ?: "—",
+            when {
+                lms == null -> "Not scanned"
+                lms.lastTest.any { it.connected } -> "LMS HTTP/Slimproto reachable"
+                lms.lastTest.isNotEmpty() -> "Last endpoint test failed"
+                else -> "No endpoint test yet"
+            },
+            Teal,
         ),
         ModuleSummary(
             Page.REPORTS,

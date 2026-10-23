@@ -5,7 +5,7 @@ import kotlinx.serialization.ExperimentalSerializationApi
 import kotlinx.serialization.json.Json
 
 object ReportJson {
-    const val SCHEMA_VERSION = "1.0"
+    const val SCHEMA_VERSION = "1.1"
 
     @OptIn(ExperimentalSerializationApi::class)
     val format: Json = Json {

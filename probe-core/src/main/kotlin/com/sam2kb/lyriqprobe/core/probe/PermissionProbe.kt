@@ -243,6 +243,58 @@ class PermissionProbe(
     companion object {
         val catalog: List<PermissionCatalogItem> = listOf(
             PermissionCatalogItem(
+                "android.permission.INTERNET",
+                "INTERNET",
+                "Reach an LMS server on the local network; used only by the explicit LMS endpoint test.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.POST_NOTIFICATIONS",
+                "POST_NOTIFICATIONS",
+                "Show the mediaPlayback foreground-service notification; runtime request on Android 13+.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.FOREGROUND_SERVICE",
+                "FOREGROUND_SERVICE",
+                "Run the short mediaPlayback foreground-service capability test.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+                "FOREGROUND_SERVICE_MEDIA_PLAYBACK",
+                "Declare the mediaPlayback foreground-service type used by SqueezeClient.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.FOREGROUND_SERVICE_DATA_SYNC",
+                "FOREGROUND_SERVICE_DATA_SYNC",
+                "Foreground download work used by SqueezeClient, catalogued only.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.WAKE_LOCK",
+                "WAKE_LOCK",
+                "Keep playback/download work alive; catalogued only.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.RECEIVE_BOOT_COMPLETED",
+                "RECEIVE_BOOT_COMPLETED",
+                "Restart local playback after boot; catalogued only.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.CHANGE_WIFI_MULTICAST_STATE",
+                "CHANGE_WIFI_MULTICAST_STATE",
+                "Multicast discovery on some LANs; catalogued only.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.ACCESS_LOCAL_NETWORK",
+                "ACCESS_LOCAL_NETWORK",
+                "Android 17/target-37 runtime permission for LAN sockets and discovery.",
+                note = "Not declared. This target-36 build uses the legacy implicit grant path; a target-37 port must declare and request it.",
+            ),
+            PermissionCatalogItem(
+                "android.permission.NEARBY_WIFI_DEVICES",
+                "NEARBY_WIFI_DEVICES",
+                "Nearby-device group permission that can pre-grant local-network access on Android 16.",
+                note = "Not declared; catalogued for the Android 17 migration.",
+            ),
+            PermissionCatalogItem(
                 Manifest.permission.CAMERA,
                 "CAMERA",
                 "Open ordinary Camera2 devices exposed to third-party apps.",

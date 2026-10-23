@@ -26,11 +26,12 @@ vehicle is moving or in a restricted UX state.
    - `getPropertyList()` count
    - sensor count
    - storage volume/app-specific directories
-   - VPN `prepare()` state
+   - media decoders, audio path, and foreground-service permissions
+   - LMS network policy (no endpoint socket is opened)
    - driving restriction snapshot
 
-Expected: no camera is opened, no sensor is sampled, no value is read, and no VPN consent
-dialog is displayed by Quick Scan.
+Expected: no camera is opened, no sensor is sampled, no value is read, no audio is written,
+no foreground service is started, and no network socket is opened by Quick Scan.
 
 ## 2. Permissions
 
@@ -103,22 +104,34 @@ Run this separately for the front/console USB and the rear cargo-area SD-card re
 
 Do not use broad storage permissions, and do not delete or overwrite existing media.
 
-## 7. Network and VPN
+## 7. Media readiness
+
+1. Open Media. Confirm which of MP3, FLAC, OGG/Vorbis, AAC, Opus, and PCM have platform
+   decoders.
+2. Note the native output rate, frames per buffer, direct PCM support, and output devices.
+3. Run **Test silent AudioTrack** once. Confirm success; there should be no audible content.
+4. Grant `POST_NOTIFICATIONS` in Permissions.
+5. Run **Test mediaPlayback FGS**. Confirm the temporary foreground service starts, posts
+   its notification, and stops.
+6. Record whether AAOS blocks, hides, or truncates the service/notification.
+7. Record the media-session class availability. This probe does not start an actual session.
+
+Do not expect this to prove Media3/ExoPlayer playback; it tests the platform path.
+
+## 8. Network and LMS
 
 1. Inventory Bluetooth/Wi-Fi/network/GPS/USB/display/audio metadata.
-2. Confirm no SSID, IP, MAC, USB serial, or location fix is present in the JSON.
-3. VPN test, only while parked:
-   - Tap **Test VPN consent + TUN**, read the confirmation, and continue.
-   - Observe whether Cadillac/AAOS displays the system VPN authorization dialog.
-   - Accept or deny. Both are evidence.
-   - If accepted, confirm whether the interface was established and immediately closed.
-   - Confirm the report shows addresses `10.254.253.1/32` and no routes, DNS, or apps.
-4. Do not install WireGuard, configure a remote endpoint, or route traffic in this version.
+2. Confirm no SSID, IP, MAC, USB serial, or location fix is present in the JSON (the
+   user-entered LMS host is also omitted).
+3. Enter the LMS host and the HTTP/Slimproto ports (default 9000/3483) in Network & LMS.
+4. Run **Test LMS ports** while parked. Both TCP connections are short and send no data.
+5. Record whether the HTTP API and Slimproto ports connect, their latency, and any
+   local-network permission error.
+6. If the car is on Android 17/target 37, test `ACCESS_LOCAL_NETWORK`; this build targets 36
+   and reports the permission boundary only.
+7. Do not enter credentials; this probe sends no application data.
 
-The VPN result only answers whether consent/TUN creation is possible. It does not prove
-that a WireGuard handshake or tunnel can work.
-
-## 8. Driving restriction check
+## 9. Driving restriction check
 
 With a second person and a safe, legal test area:
 
@@ -132,13 +145,13 @@ With a second person and a safe, legal test area:
 
 Do not operate the screen while driving.
 
-## 9. Export the evidence
+## 10. Export the evidence
 
 - Save the final report.
 - Export the JSON to a known folder.
 - Record the file name, size, SHA-256 if practical, and the exact app version.
-- Keep screenshots of the camera list, permission matrix, storage test, and VPN consent
-  dialog; these are useful both for analysis and for a future Play listing.
+- Keep screenshots of the camera list, permission matrix, storage test, media/FGS result,
+  and LMS endpoint result; these are useful for analysis and a future Play listing.
 - Do not include VIN, location, account, or personal identifiers in shared evidence.
 
 ## Decision after the report

@@ -27,7 +27,6 @@ import androidx.compose.ui.text.font.FontFamily
 import androidx.compose.ui.unit.dp
 import com.sam2kb.lyriqprobe.ProbeUiState
 import com.sam2kb.lyriqprobe.ProbeViewModel
-import com.sam2kb.lyriqprobe.core.model.ProbeReport
 import com.sam2kb.lyriqprobe.core.model.ResultStatus
 import com.sam2kb.lyriqprobe.core.util.formatBytes
 import com.sam2kb.lyriqprobe.report.SavedReport
@@ -146,9 +145,9 @@ fun ReportsScreen(state: ProbeUiState, viewModel: ProbeViewModel) {
                 MetricTile(report.vehicleProperties?.propertyCount?.toString() ?: "—", "vehicle props", Amber, Modifier.weight(1f))
                 MetricTile(report.androidSensors?.sensors?.size?.toString() ?: "—", "sensors", Paper, Modifier.weight(1f))
                 MetricTile(
-                    report.vpn?.interfaceEstablished?.toString() ?: "—",
-                    "VPN TUN",
-                    if (report.vpn?.interfaceEstablished == true) Teal else Muted,
+                    report.media?.mimeSupport?.count { it.value }?.toString() ?: "—",
+                    "audio MIME",
+                    Teal,
                     Modifier.weight(1f),
                 )
             }
@@ -264,7 +263,7 @@ fun ReportsScreen(state: ProbeUiState, viewModel: ProbeViewModel) {
         Spacer(Modifier.height(10.dp))
         Text(
             "The JSON contains test_results, errors, permissions, cameras, vehicle_properties, android_sensors, " +
-                "storage, connectivity, vpn, driving_state, and summary. It intentionally excludes VIN, precise " +
+                "storage, connectivity, media, lms_network, driving_state, and summary. It intentionally excludes VIN, precise " +
                 "location, accounts, and device serial numbers.",
             style = MaterialTheme.typography.labelSmall,
             color = Faint,

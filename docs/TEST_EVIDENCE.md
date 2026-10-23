@@ -1,7 +1,7 @@
 # Test and build evidence
 
-Generated from the handoff checkout on **2026-10-23**. This is build/test evidence, not a
-vehicle test.
+Generated from the v1.1.0 handoff checkout on **2026-10-23**. This is build/test evidence,
+not a vehicle test.
 
 ## Environment
 
@@ -13,7 +13,7 @@ vehicle test.
 | Kotlin | 2.2.21 |
 | Android SDK | platform 36, build-tools 36.0.0, platform-tools 37.0.1 |
 | Host device access | none; no `/dev/kvm` |
-| Source commit | `229c97d34ba314600c2e1bac60d2ffab780bf3c3` (tag `v1.0.0-build.1`) |
+| Source commit | tag `v1.1.0-build.1` |
 
 ## Commands
 
@@ -36,15 +36,17 @@ Both completed successfully.
 | Suite | Tests | Failures | Errors |
 | --- | ---: | ---: | ---: |
 | `PermissionClassifierTest` | 3 | 0 | 0 |
+| `LmsEndpointKindTest` | 1 | 0 | 0 |
 | `ReportFactoryTest` | 5 | 0 | 0 |
 | `TestHarnessTest` | 4 | 0 | 0 |
 | `FormatTest` | 2 | 0 | 0 |
-| **Total** | **14** | **0** | **0** |
+| **Total** | **15** | **0** | **0** |
 
 Coverage is intentionally narrow: status mapping and timeouts, permission classification,
-formatters, report counts/errors, top-level JSON keys, VPN serialization, and round-trip
-decode. Android runtime probes, Compose UI, VPN consent, Camera2, SAF, and CarPropertyManager
-have not been executed on a device.
+LMS endpoint classification, formatters, report counts/errors, top-level JSON keys,
+media/LMS serialization, and round-trip decode. Android runtime probes, Compose UI, camera,
+SAF, MediaCodec/AudioTrack, the foreground service, and CarPropertyManager have not been
+executed on a device.
 
 ## Lint
 
@@ -54,28 +56,27 @@ have not been executed on a device.
 0 errors, 24 warnings
 ```
 
-Warnings are newer-dependency/version advisories (Gradle, AGP, Kotlin, AndroidX), Compose
-`Modifier` parameter ordering, adaptive-icon qualifier/monochrome notices, and a newer
-target-SDK advisory. There are no lint errors. Full report:
-`app/build/reports/lint-results-debug.html` in the build workspace.
+Warnings are newer-dependency/version advisories, Compose `Modifier` parameter ordering,
+adaptive-icon qualifier/monochrome notices, and a newer target-SDK advisory. There are no
+lint errors. Full report: `app/build/reports/lint-results-debug.html` in the build workspace.
 
 ## Static safety check
 
 ```text
-PASS: no forbidden manifest permission, vehicle write, recording, route, identifier, or hidden-API pattern found
+PASS: no forbidden manifest permission, vehicle write, recording, VPN route, identifier, or hidden-API pattern found
 ```
 
-`tools/check-boundaries.sh` checks the manifest and Kotlin sources for forbidden permissions,
-vehicle setters, MediaRecorder/repeating capture, VPN route/DNS/allowed-app calls, sensitive
-identifier/location calls, reflection/ServiceManager/Binder use, and accidental inclusion of
+The v1.1.0 variant checks the manifest and Kotlin sources for forbidden permissions, vehicle
+setters, MediaRecorder/repeating capture, TUN-route calls, sensitive
+identifier/location calls, reflection/ServiceManager use, and accidental inclusion of
 `INFO_VIN` in the value-read allowlist.
 
 ## Artifacts
 
 | Artifact | Package | Size | SHA-256 |
 | --- | --- | ---: | --- |
-| `app-debug.apk` | `com.sam2kb.lyriqprobe.debug` | 29,835,264 bytes | `ac543c7985b06aef791243ea7cb60727976e31db2f106fd51fda253e6d97dcbd` |
-| `app-release.aab` | `com.sam2kb.lyriqprobe` | 7,716,546 bytes | `5e6e5e825161a20755d6e3bdb9c8d329cc4c72ce4787ef734a1b7cb4931af8fd` |
+| `app-debug.apk` | `com.sam2kb.lyriqprobe.debug` | 29,966,968 bytes | `174515805c8defa8331263a1aa3c5c9d2289127146dcccb90cc728c51de73779` |
+| `app-release.aab` | `com.sam2kb.lyriqprobe` | 7,752,404 bytes | `5649f46dee37645e5e01c74e2641bad44353d3bb99014a8a7020e8d6a929928e` |
 
 ### Debug APK
 
@@ -98,28 +99,33 @@ jar is unsigned.
 ```
 
 The AAB is structurally valid but **unsigned** because no upload key was supplied. Configure
-`keystore.properties` and rebuild before Play upload; instructions in
-[BUILD_AND_INSTALL.md](BUILD_AND_INSTALL.md).
-
-`bundletool-all 1.18.3 validate --bundle app-release.aab` exits `0` and reports one `base`
-feature module.
+`keystore.properties` and rebuild before Play upload. `bundletool-all 1.18.3 validate --bundle`
+exits `0` and reports one `base` feature module.
 
 Release manifest facts:
 
 ```text
 package="com.sam2kb.lyriqprobe"
+versionCode=2
+versionName="1.1.0"
 minSdkVersion=29
 targetSdkVersion=36
 compileSdkVersion=36
 uses-feature android.hardware.type.automotive required=true
 uses-feature android.hardware.camera required=false
-VpnProbeService exported=true, permission=android.permission.BIND_VPN_SERVICE
+service media.MediaCapabilityService
+  exported=false
+  foregroundServiceType=mediaPlayback
 ```
 
 Manifest permissions:
 
 ```text
+android.permission.INTERNET
 android.permission.CAMERA
+android.permission.POST_NOTIFICATIONS
+android.permission.FOREGROUND_SERVICE
+android.permission.FOREGROUND_SERVICE_MEDIA_PLAYBACK
 android.permission.BLUETOOTH_CONNECT
 android.permission.ACCESS_NETWORK_STATE
 android.permission.ACCESS_WIFI_STATE
@@ -132,7 +138,8 @@ android.car.permission.CAR_MILEAGE
 android.car.permission.CAR_SENSORS
 ```
 
-No `INTERNET`, location, storage, microphone, or `SYSTEM_CAMERA` permission is declared.
+No `VpnService` component or `BIND_VPN_SERVICE` permission is present. No location, storage,
+microphone, or `SYSTEM_CAMERA` permission is declared.
 
 ## Not performed
 
@@ -143,7 +150,9 @@ No `INTERNET`, location, storage, microphone, or `SYSTEM_CAMERA` permission is d
 - CarPropertyManager reads on real VHAL.
 - Sensor sampling on real hardware.
 - SAF write test on the rear SD reader or USB.
-- VPN consent dialog and TUN establishment on Cadillac AAOS.
+- MediaCodec/AudioTrack playback, mediaPlayback foreground service, or notification display
+  on AAOS.
+- LMS HTTP/Slimproto socket reachability on the vehicle LAN.
 - Play Console upload, form-factor review, eligibility, or tester install.
 - Real-device UI screenshots or accessibility inspection.
 

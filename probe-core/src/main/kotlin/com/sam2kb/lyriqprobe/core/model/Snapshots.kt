@@ -405,23 +405,81 @@ data class ConnectivitySnapshot(
 )
 
 @Serializable
-data class VpnCapabilitySnapshot(
-    val apiAvailable: Boolean,
-    val serviceDeclared: Boolean,
-    val bindPermissionProtected: Boolean,
-    val serviceExported: Boolean?,
-    val vpnIntentFilterPresent: Boolean,
-    val authorizationState: String,
-    val consentDialogRequested: Boolean,
-    val interfaceEstablished: Boolean?,
-    val interfaceClosed: Boolean?,
-    val sessionName: String?,
-    val addressesAdded: List<String>,
-    val routesAdded: List<String>,
-    val dnsServers: List<String>,
-    val allowedApplications: List<String>,
-    val durationMs: Long?,
+data class MediaCodecInfo(
+    val name: String,
+    val mimeTypes: List<String>,
+    val hardwareAccelerated: Boolean?,
+    val softwareOnly: Boolean?,
+    val maxSupportedInstances: Int?,
+)
+
+@Serializable
+data class AudioPathSnapshot(
+    val nativeOutputSampleRate: Int?,
+    val framesPerBuffer: Int?,
+    val minBufferBytes44100Stereo: Int?,
+    val minBufferBytes48000Stereo: Int?,
+    val directPlaybackSupported: Map<String, Boolean>,
+    val outputDeviceSummary: List<String>,
+)
+
+@Serializable
+data class ForegroundServiceTestResult(
+    val attempted: Boolean,
+    val started: Boolean,
+    val stopped: Boolean,
+    val notificationPermissionGranted: Boolean,
+    val notificationsEnabled: Boolean,
+    val notificationChannelCreated: Boolean,
     val error: String?,
+)
+
+@Serializable
+data class SilentAudioTestResult(
+    val attempted: Boolean,
+    val succeeded: Boolean,
+    val sampleRate: Int,
+    val channelCount: Int,
+    val bufferBytes: Int,
+    val playState: String?,
+    val error: String?,
+)
+
+@Serializable
+data class MediaSnapshot(
+    val audioDecoders: List<MediaCodecInfo>,
+    val mimeSupport: Map<String, Boolean>,
+    val audioPath: AudioPathSnapshot,
+    val mediaSessionApiPresent: Boolean,
+    val mediaBrowserServicePresent: Boolean,
+    val notificationPermissionGranted: Boolean,
+    val notificationsEnabled: Boolean,
+    val foregroundServicePermissions: Map<String, Boolean>,
+    val lastForegroundServiceTest: ForegroundServiceTestResult? = null,
+    val lastSilentAudioTest: SilentAudioTestResult? = null,
+    val note: String,
+)
+
+@Serializable
+data class LmsEndpointResult(
+    val label: String,
+    val port: Int,
+    val dnsResolved: Boolean,
+    val connected: Boolean,
+    val latencyMs: Long?,
+    val errorClass: String?,
+    val errorMessage: String?,
+)
+
+@Serializable
+data class LmsNetworkSnapshot(
+    val internetPermissionGranted: Boolean,
+    val localNetworkPermissionDefined: Boolean,
+    val localNetworkPermissionGranted: Boolean,
+    val nearbyWifiPermissionDefined: Boolean,
+    val cleartextTrafficPermitted: Boolean,
+    val endpointKind: String?,
+    val lastTest: List<LmsEndpointResult> = emptyList(),
     val note: String,
 )
 
@@ -478,7 +536,9 @@ data class ProbeReport(
     val androidSensors: SensorSnapshot?,
     val storage: StorageSnapshot?,
     val connectivity: ConnectivitySnapshot?,
-    val vpn: VpnCapabilitySnapshot?,
+    val media: MediaSnapshot?,
+    @kotlinx.serialization.SerialName("lms_network")
+    val lmsNetwork: LmsNetworkSnapshot?,
     @kotlinx.serialization.SerialName("driving_state")
     val drivingState: DrivingStateSnapshot?,
     @kotlinx.serialization.SerialName("car_app_library")
@@ -500,7 +560,8 @@ data class ProbeData(
     val sensors: SensorSnapshot? = null,
     val storage: StorageSnapshot? = null,
     val connectivity: ConnectivitySnapshot? = null,
-    val vpn: VpnCapabilitySnapshot? = null,
+    val media: MediaSnapshot? = null,
+    val lmsNetwork: LmsNetworkSnapshot? = null,
     val driving: DrivingStateSnapshot? = null,
     val carAppLibrary: CarAppLibrarySnapshot? = null,
     val results: List<TestResult> = emptyList(),

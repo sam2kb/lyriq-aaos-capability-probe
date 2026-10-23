@@ -1,13 +1,13 @@
 # JSON report schema
 
-Schema version: **1.0**. The report is local by default. `ReportStore` writes a matching
+Schema version: **1.1**. The report is local by default. `ReportStore` writes a matching
 human-readable `.txt` next to the `.json`.
 
 ## Top level
 
 | Key | Contents |
 | --- | --- |
-| `schema_version` | `"1.0"` |
+| `schema_version` | `"1.1"` |
 | `app_version` | app version name |
 | `timestamp` | ISO-8601 UTC generation time |
 | `app` | package, version, installer, SDKs, debuggable, granted permissions |
@@ -20,7 +20,8 @@ human-readable `.txt` next to the `.json`.
 | `android_sensors` | sensor inventory + last 10-second sample |
 | `storage` | volumes, app-specific external dirs, selected tree, SAF test steps |
 | `connectivity` | Bluetooth, Wi-Fi, network, location/GNSS, USB, display, audio |
-| `vpn` | component/consent/TUN evidence |
+| `media` | audio decoders, MIME support, AudioTrack path, media session/notification/FGS state |
+| `lms_network` | INTERNET/local-network/cleartext policy and last HTTP/Slimproto TCP test |
 | `driving_state` | UX restriction snapshot and note |
 | `car_app_library` | explicit `NOT_TESTED` scope boundary |
 | `summary` | counts, camera/property/sensor/storage totals, key findings, human-readable text |
@@ -56,8 +57,9 @@ Statuses:
 `UNAVAILABLE`, `ERROR`, `TIMEOUT`, `NOT_TESTED`.
 
 `DISCOVERY` means metadata was observed. `ACTIVE` means the user requested an operation
-that actually opened a camera, sampled a sensor, read a value, wrote a temporary file, or
-requested VPN consent. Do not promote a discovery result to proof of access.
+that actually opened a camera, sampled a sensor, read a value, wrote a temporary file,
+wrote silent audio, started a foreground service, or opened an LMS TCP socket. Do not
+promote a discovery result to proof of access.
 
 ## Camera descriptor
 
@@ -72,15 +74,23 @@ Includes property ID/name, area, status, value string, value type, unit label, V
 property status, timestamp, and summary. `INFO_VIN` may appear in `vehicle_properties`
 metadata; it is never read and has no value entry. No actuator properties are read.
 
-## VPN snapshot
+## Media snapshot
 
-Includes `apiAvailable`, `serviceDeclared`, `bindPermissionProtected`, `serviceExported`,
-`vpnIntentFilterPresent`, `authorizationState`, `consentDialogRequested`,
-`interfaceEstablished`, `interfaceClosed`, `sessionName`, `addressesAdded`, `routesAdded`,
-`dnsServers`, `allowedApplications`, `durationMs`, `error`, and a boundary note.
+Includes `audioDecoders` (`name`, audio `mimeTypes`, hardware/software flags, max instances),
+`mimeSupport`, `audioPath` (native rate, frames per buffer, minimum buffers, direct PCM
+support, output device summaries), `mediaSessionApiPresent`, `mediaBrowserServicePresent`,
+notification/foreground-service permission states, `lastForegroundServiceTest`, and
+`lastSilentAudioTest`. The FGS test record has started/stopped/channel/permission/error
+fields; the audio record has sample rate, channels, buffer size, play state, and error.
 
-The intended successful test has `addressesAdded=["10.254.253.1/32"]`, empty routes/DNS/
-apps, established=true, closed=true.
+## LMS network snapshot
+
+`internetPermissionGranted`, `localNetworkPermissionDefined`,
+`localNetworkPermissionGranted`, `nearbyWifiPermissionDefined`,
+`cleartextTrafficPermitted`, `endpointKind` (private/public/loopback/mDNS/IPv6/hostname),
+and `lastTest`. Each endpoint result has a label (`http`/`slimproto`), port, DNS/connection
+flags, latency, and sanitized error class/message. The user-entered host/IP is **not**
+included.
 
 ## Storage snapshot
 
@@ -91,4 +101,4 @@ not included in the JSON. Removable-volume UUID path segments are redacted to `[
 ## Privacy exclusions
 
 The report does not include VIN value, precise coordinates, account identities, SSID/BSSID,
-IP/MAC address, USB serial numbers, or `ANDROID_ID`. See [PRIVACY.md](PRIVACY.md).
+IP/MAC address, USB serial numbers, `ANDROID_ID`, LMS host/IP, HTTP payloads, or audio. See [PRIVACY.md](PRIVACY.md).

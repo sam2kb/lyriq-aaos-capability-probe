@@ -12,7 +12,8 @@ MainActivity
        ├─ SensorProbe
        ├─ StorageProbe ── SAF / DocumentFile
        ├─ ConnectivityProbe
-       ├─ VpnProbe ── VpnProbeService / VpnProbeBroker
+       ├─ MediaProbe ── MediaCapabilityService / MediaProbeBroker
+       ├─ LmsNetworkProbe
        └─ ReportStore
 
 probe-core/
@@ -52,8 +53,8 @@ Within a module, individual camera/property/sensor failures are recorded without
 the whole inventory.
 
 Active tests are single-flight. Starting one is rejected while the quick scan or another
-active test is running. The camera, sensor, storage, vehicle-value, and VPN paths are
-separate explicit actions.
+active test is running. The camera, sensor, storage, vehicle-value, media, and LMS-network
+paths are separate explicit actions.
 
 ## Driving restrictions
 
@@ -62,7 +63,8 @@ separate explicit actions.
 
 - the ViewModel cancels the running scan/active coroutine;
 - active controls are disabled;
-- the VPN test (which is not a coroutine) is stopped with `stopService`;
+- the media foreground-service test (which is not a coroutine) is stopped with
+  `stopService`;
 - the UI shows a hard restriction notice.
 
 If restrictions cannot be read, the UI requires an explicit parked confirmation. The
@@ -84,13 +86,27 @@ distraction-optimized, so AAOS may also block it entirely while driving.
 allowlist. `INFO_VIN` may appear in the accessible metadata but is never added to the read
 list. There is no `setProperty` call in the project.
 
-## VPN path
+## Media path
 
-`VpnProbe` checks the declared service, `BIND_VPN_SERVICE` protection, intent filter, and
-`prepare()` state. The active test launches the consent Intent through an Activity Result
-contract. `VpnProbeService` establishes a TUN with one private address and no routes, DNS,
-allowed apps, or underlying networks, then closes it and stops. Results return in-process
-through `VpnProbeBroker`.
+`MediaProbe` inventories platform audio decoders, relevant MIME support, AudioManager and
+AudioTrack properties, MediaSession/MediaBrowserService class availability, notification
+state, and media foreground-service permissions. The explicit silent-audio test writes
+zeros through AudioTrack and releases it; it does not play content, change volume, or request
+audio focus.
+
+`MediaCapabilityService` is a short-lived `mediaPlayback` foreground service. It creates a
+low-importance channel, posts a temporary notification, calls `startForeground` with the
+media-playback type, waits about one second, removes the notification, stops, and publishes
+the outcome through `MediaProbeBroker`. This mirrors the service path SqueezeClient uses
+without claiming an actual media session.
+
+## LMS network path
+
+`LmsNetworkProbe` records INTERNET, cleartext policy, and the Android 16/17 local-network
+permission boundary. Its active test resolves the user-entered LMS host and opens short TCP
+connections to the HTTP port (normally 9000) and Slimproto port (normally 3483). The host/IP
+is deliberately **not** written to the report; only endpoint class, ports, latency, and
+errors are stored. The test sends no application payload and closes both sockets.
 
 ## Storage
 

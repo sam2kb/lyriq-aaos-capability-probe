@@ -32,7 +32,7 @@ enum class ProbeModule {
     SENSORS,
     STORAGE,
     CONNECTIVITY,
-    VPN,
+    MEDIA,
     DRIVING,
     REPORTING,
 }

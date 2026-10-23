@@ -68,8 +68,9 @@ enum class Page(
     VEHICLE("03", "Vehicle data", "Vehicle"),
     SENSORS("04", "Android sensors", "Sensors"),
     STORAGE("05", "Storage", "Storage"),
-    NETWORK("06", "Network & VPN", "Network"),
-    REPORTS("07", "Reports", "Reports"),
+    MEDIA("06", "Media readiness", "Media"),
+    NETWORK("07", "Network & LMS", "LMS"),
+    REPORTS("08", "Reports", "Reports"),
 }
 
 @Composable
@@ -155,6 +156,7 @@ fun ProbeApp(viewModel: ProbeViewModel) {
                     Page.VEHICLE -> VehicleScreen(state, viewModel)
                     Page.SENSORS -> SensorsScreen(state, viewModel)
                     Page.STORAGE -> StorageScreen(state, viewModel)
+                    Page.MEDIA -> MediaScreen(state, viewModel)
                     Page.NETWORK -> NetworkScreen(state, viewModel)
                     Page.REPORTS -> ReportsScreen(state, viewModel)
                 }
@@ -209,7 +211,7 @@ private fun NavigationRail(
         )
         Spacer(Modifier.height(18.dp))
         Text(
-            "READ-ONLY\nNO VIN / NO MEDIA",
+            "READ-ONLY\nNO VIN / NO RECORDING",
             style = MaterialTheme.typography.labelSmall,
             color = Faint,
             fontFamily = FontFamily.Monospace,
@@ -270,7 +272,8 @@ private fun itemNeedsAttention(page: Page, state: ProbeUiState): Boolean {
     return when (page) {
         Page.CAMERAS -> (report.cameras?.cameraCount ?: 0) > 0
         Page.VEHICLE -> (report.vehicleProperties?.propertyCount ?: 0) > 0
-        Page.NETWORK -> report.vpn?.authorizationState == "CONSENT_REQUIRED"
+        Page.NETWORK -> report.lmsNetwork?.lastTest?.any { it.connected } == true
+        Page.MEDIA -> report.media?.lastForegroundServiceTest?.started == true
         else -> false
     }
 }

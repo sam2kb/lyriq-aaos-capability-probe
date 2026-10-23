@@ -1,8 +1,8 @@
 # Privacy and data handling
 
-The probe is offline and local-first. It declares no `INTERNET` permission and contains no
-analytics, advertising, account, or cloud SDK. Nothing is transmitted by the app; export and
-share are user-initiated system actions.
+The probe is local-first. It contains no analytics, advertising, account, or cloud SDK.
+`INTERNET` is declared solely for the explicit LMS endpoint test; Quick Scan opens no
+sockets. Export and share are user-initiated system actions.
 
 ## Collected
 
@@ -10,7 +10,8 @@ share are user-initiated system actions.
   fingerprint, locale, and time zone.
 - App package/version, installer identity, declared/granted permissions.
 - Camera2 metadata, vehicle-property metadata and allowlisted values, Android sensor
-  metadata, storage/volume metadata, connectivity metadata, and VPN consent/TUN outcomes.
+  metadata, storage/volume metadata, connectivity metadata, audio/media capability metadata,
+  and LMS endpoint test outcomes (without the hostname/IP).
 - The user-selected SAF folder display name and test-file steps. The persistent tree URI is
   kept only in app-private preferences and is not exported in the report.
 - The VIN property may appear as **metadata** in `getPropertyList()` because the platform
@@ -24,7 +25,9 @@ share are user-initiated system actions.
 - `ANDROID_ID`, `Build.SERIAL`, advertising ID, or contacts.
 - Camera frames or recordings. The optional frame test reads one frame in memory to prove
   data is available, then discards it; no image is saved.
-- VPN traffic, packets, keys, or remote endpoints. The probe has no remote endpoint.
+- LMS content, credentials, streamed audio, HTTP payloads, or the user-entered hostname/IP.
+- Audio content or recordings. The media test writes silent PCM to the output path; nothing
+  is captured.
 - Paired Bluetooth devices, local Bluetooth name, or address.
 
 Removable-volume UUID path segments are replaced with `[VOLUME]` before entering the
@@ -35,7 +38,10 @@ sanitized.
 
 The release manifest declares only:
 
+- `INTERNET` — the explicit LMS HTTP/Slimproto TCP reachability test only.
 - `CAMERA` — active camera open/one-frame test.
+- `POST_NOTIFICATIONS` — show the temporary mediaPlayback foreground-service notification.
+- `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK` — the temporary service type test.
 - `BLUETOOTH_CONNECT` — read adapter enabled/state; no scanning or paired-device access.
 - `ACCESS_NETWORK_STATE`, `ACCESS_WIFI_STATE` — transport and enabled-state inventory.
 - `android.car.permission.CAR_INFO`, `CAR_ENERGY`, `CAR_ENERGY_PORTS`, `CAR_SPEED`,
@@ -43,7 +49,9 @@ The release manifest declares only:
 
 Location, Bluetooth scan, storage, microphone, `SYSTEM_CAMERA`, and all-files permissions
 are catalogued but **not declared**. `SYSTEM_CAMERA` and other protected permissions are
-reported as boundaries and never requested.
+reported as boundaries and never requested. `ACCESS_LOCAL_NETWORK` is catalogued but not
+declared in this target-36 build; see the Android 17 note in
+[SQUEEZECLIENT_AAOS_PORT.md](SQUEEZECLIENT_AAOS_PORT.md).
 
 ## Local storage
 
@@ -55,11 +63,12 @@ reported as boundaries and never requested.
 - Clearing app storage or uninstalling the app removes local reports. The current UI does
   not have a per-report delete button.
 
-## VPN
+## Network and media
 
-The VPN test requests the system consent dialog and creates a temporary TUN with one private
-address, no routes, no DNS, and no allowed apps. It closes immediately. It does not carry
-traffic or contact a server. The authorization outcome is written into the report.
+The LMS endpoint test is user-initiated, opens two short TCP connections, sends no HTTP
+payload, and omits the hostname/IP from JSON. The media test writes silent PCM to the audio
+output and starts a one-second mediaPlayback foreground service with a temporary
+notification. Neither test runs in the background or collects content.
 
 ## Vehicle safety
 

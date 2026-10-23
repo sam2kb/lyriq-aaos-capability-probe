@@ -32,7 +32,8 @@ class ReportFactory(private val appVersion: String) {
             androidSensors = data.sensors,
             storage = data.storage,
             connectivity = data.connectivity,
-            vpn = data.vpn,
+            media = data.media,
+            lmsNetwork = data.lmsNetwork,
             drivingState = data.driving,
             carAppLibrary = data.carAppLibrary,
             summary = summary,
@@ -129,17 +130,46 @@ class ReportFactory(private val appVersion: String) {
                     "${it.protectedPermissions.size} are privileged or signature-only.",
             )
         }
-        data.vpn?.let { vpn ->
-            when {
-                vpn.interfaceEstablished == true && vpn.interfaceClosed == true ->
-                    add("A temporary VpnService TUN interface was established and closed with no routes or DNS configured.")
-                vpn.authorizationState.contains("DENIED", ignoreCase = true) ->
-                    add("VPN authorization was denied; no TUN interface was created.")
-                !vpn.serviceDeclared ->
-                    add("No VpnService component is declared in this build.")
-                else ->
-                    add("VPN capability is ${vpn.authorizationState.lowercase().replace('_', ' ')}; see the VPN section.")
+        data.media?.let { media ->
+            val supported = media.mimeSupport.filterValues { it }.keys
+            add(
+                if (supported.isEmpty()) {
+                    "No tested audio MIME type has a MediaCodec decoder on this build."
+                } else {
+                    "Audio decoders found for: ${supported.joinToString()}."
+                },
+            )
+            media.lastForegroundServiceTest?.let { fgs ->
+                add(
+                    if (fgs.started && fgs.stopped) {
+                        "A temporary mediaPlayback foreground service started and stopped successfully."
+                    } else {
+                        "The temporary mediaPlayback foreground-service test did not complete successfully."
+                    },
+                )
             }
+            media.lastSilentAudioTest?.let { audio ->
+                add(
+                    if (audio.succeeded) {
+                        "AudioTrack accepted a one-second silent PCM stream."
+                    } else {
+                        "The AudioTrack smoke test failed."
+                    },
+                )
+            }
+        }
+        data.lmsNetwork?.let { lms ->
+            val connected = lms.lastTest.count { it.connected }
+            add(
+                "LMS readiness: INTERNET=${lms.internetPermissionGranted}, " +
+                    "local-network permission defined=${lms.localNetworkPermissionDefined} " +
+                    "granted=${lms.localNetworkPermissionGranted}, cleartext=${lms.cleartextTrafficPermitted}." +
+                    if (lms.lastTest.isEmpty()) {
+                        ""
+                    } else {
+                        " Last endpoint test connected $connected/${lms.lastTest.size} port(s)."
+                    },
+            )
         }
         data.driving?.let {
             if (it.available) {

@@ -19,10 +19,12 @@ import com.sam2kb.lyriqprobe.core.model.ProbeReport
 import com.sam2kb.lyriqprobe.core.model.ProbeSection
 import com.sam2kb.lyriqprobe.core.model.ResultStatus
 import com.sam2kb.lyriqprobe.core.model.TestOutcome
+import com.sam2kb.lyriqprobe.core.model.ForegroundServiceTestResult
 import com.sam2kb.lyriqprobe.core.model.TestResult
-import com.sam2kb.lyriqprobe.core.model.VpnCapabilitySnapshot
 import com.sam2kb.lyriqprobe.core.probe.CameraProbe
 import com.sam2kb.lyriqprobe.core.probe.ConnectivityProbe
+import com.sam2kb.lyriqprobe.core.probe.LmsNetworkProbe
+import com.sam2kb.lyriqprobe.core.probe.MediaProbe
 import com.sam2kb.lyriqprobe.core.probe.PermissionProbe
 import com.sam2kb.lyriqprobe.core.probe.SensorProbe
 import com.sam2kb.lyriqprobe.core.probe.StorageProbe
@@ -34,14 +36,14 @@ import com.sam2kb.lyriqprobe.core.runner.TestHarness
 import com.sam2kb.lyriqprobe.core.runner.activeMeta
 import com.sam2kb.lyriqprobe.core.runner.discoveryMeta
 import com.sam2kb.lyriqprobe.report.ReportStore
+import com.sam2kb.lyriqprobe.media.MediaCapabilityService
+import com.sam2kb.lyriqprobe.media.MediaForegroundOutcome
+import com.sam2kb.lyriqprobe.media.MediaProbeBroker
 import com.sam2kb.lyriqprobe.report.SavedReport
-import com.sam2kb.lyriqprobe.vpn.VpnEstablishOutcome
-import com.sam2kb.lyriqprobe.vpn.VpnProbe
-import com.sam2kb.lyriqprobe.vpn.VpnProbeBroker
-import com.sam2kb.lyriqprobe.vpn.VpnProbeService
 import kotlinx.coroutines.CancellationException
 import kotlinx.coroutines.CompletableDeferred
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.delay
 import kotlinx.coroutines.Job
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
@@ -65,7 +67,7 @@ data class ProbeUiState(
     val scanPhase: ScanPhase = ScanPhase.IDLE,
     val scanStep: String = "Ready",
     val scanCompleted: Int = 0,
-    val scanTotal: Int = 9,
+    val scanTotal: Int = 10,
     val driving: DrivingStateSnapshot? = null,
     val automotiveFeature: Boolean = false,
     val parkedAttested: Boolean = false,
@@ -102,7 +104,8 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
     private val sensorProbe = SensorProbe(app)
     private val storageProbe = StorageProbe(app)
     private val connectivityProbe = ConnectivityProbe(app)
-    private val vpnProbe = VpnProbe(app)
+    private val mediaProbe = MediaProbe(app)
+    private val lmsProbe = LmsNetworkProbe(app)
     private val reportFactory = ReportFactory(BuildConfig.VERSION_NAME)
     private val reportStore = ReportStore(app)
     private val appInfo = runCatching { systemProbe.readAppInfo() }.getOrNull()
@@ -121,11 +124,12 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
     private var carAccess: CarAccess? = null
     private var scanJob: Job? = null
     private var activeJob: Job? = null
-    private var vpnInFlight = false
+    private var mediaFgsInFlight = false
+    private var mediaFgsTimeout: Job? = null
 
     init {
         viewModelScope.launch {
-            VpnProbeBroker.events.collect { outcome -> onVpnEstablished(outcome) }
+            MediaProbeBroker.events.collect { outcome -> onMediaForegroundOutcome(outcome) }
         }
         viewModelScope.launch {
             val reports = withContext(Dispatchers.IO) {
@@ -168,7 +172,7 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
                     scanPhase = ScanPhase.RUNNING,
                     scanStep = "Preparing probes",
                     scanCompleted = 0,
-                    scanTotal = 9,
+                    scanTotal = 10,
                     activeBusy = null,
                     lastActiveResult = null,
                     message = null,
@@ -279,20 +283,33 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
                     results = data.results + connectivity.results,
                 )
                 publish(data)
-                advance(7, "VPN")
+                advance(7, "Media")
 
-                val vpn = safeSection(
-                    ProbeModule.VPN,
-                    "vpn.module",
-                    "VPN capability module",
-                    "VpnService",
-                ) { withContext(Dispatchers.IO) { vpnProbe.scan() } }
+                val media = safeSection(
+                    ProbeModule.MEDIA,
+                    "media.module",
+                    "Media and audio readiness module",
+                    "MediaCodecList / AudioTrack / MediaSession",
+                ) { withContext(Dispatchers.IO) { mediaProbe.scan() } }
                 data = data.copy(
-                    vpn = vpn.snapshot,
-                    results = data.results + vpn.results,
+                    media = media.snapshot,
+                    results = data.results + media.results,
                 )
                 publish(data)
-                advance(8, "Driving state")
+                advance(8, "LMS network")
+
+                val lms = safeSection(
+                    ProbeModule.CONNECTIVITY,
+                    "lms.module",
+                    "LMS network readiness module",
+                    "NetworkSecurityPolicy / PackageManager",
+                ) { withContext(Dispatchers.IO) { lmsProbe.scan() } }
+                data = data.copy(
+                    lmsNetwork = lms.snapshot,
+                    results = data.results + lms.results,
+                )
+                publish(data)
+                advance(9, "Driving state")
 
                 val drivingNow = withContext(Dispatchers.IO) {
                     access?.currentDrivingState()
@@ -348,7 +365,7 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
                     results = data.results + drivingResult + carAppResult,
                 )
                 val report = publish(data)
-                advance(9, "Saving report")
+                advance(10, "Saving report")
                 val saved = withContext(Dispatchers.IO) {
                     runCatching { reportStore.save(report) }
                 }
@@ -359,7 +376,7 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
                     it.copy(
                         scanPhase = ScanPhase.COMPLETE,
                         scanStep = "Scan complete",
-                        scanCompleted = 9,
+                        scanCompleted = 10,
                         report = report,
                         savedReports = savedReports,
                         message = saved.fold(
@@ -692,7 +709,7 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
         val snapshot = _state.value
         if (scanJob?.isActive == true) return "Quick Scan is already running."
         if (activeJob?.isActive == true) return "An active test is running."
-        if (snapshot.activeBusy != null || vpnInFlight) return "An active test is running."
+        if (snapshot.activeBusy != null || mediaFgsInFlight) return "An active test is running."
         if (snapshot.restricted) {
             return "Vehicle reports a restricted driving state. Interactive diagnostics are disabled."
         }
@@ -715,6 +732,14 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
         }
         return null
     }
+
+    private fun notificationPermissionGranted(): Boolean =
+        if (android.os.Build.VERSION.SDK_INT >= 33) {
+            app.checkSelfPermission(android.Manifest.permission.POST_NOTIFICATIONS) ==
+                PackageManager.PERMISSION_GRANTED
+        } else {
+            true
+        }
 
     private fun isActiveAllowedNow(): Boolean {
         val snapshot = _state.value
@@ -739,9 +764,10 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
         if (restricted) {
             activeJob?.cancel()
             scanJob?.cancel()
-            if (vpnInFlight) {
-                vpnInFlight = false
-                app.stopService(Intent(app, VpnProbeService::class.java))
+            if (mediaFgsInFlight) {
+                mediaFgsInFlight = false
+                mediaFgsTimeout?.cancel()
+                app.stopService(Intent(app, MediaCapabilityService::class.java))
                 _state.update { it.copy(activeBusy = null) }
             }
         }
@@ -787,166 +813,192 @@ class ProbeViewModel(application: Application) : AndroidViewModel(application) {
         sensors = androidSensors,
         storage = storage,
         connectivity = connectivity,
-        vpn = vpn,
+        media = media,
+        lmsNetwork = lmsNetwork,
         driving = drivingState,
         carAppLibrary = carAppLibrary,
         results = testResults,
         errors = emptyList(),
     )
 
-    fun startVpnTest(): Intent? {
+    fun testSilentAudio() {
+        runActive(
+            id = "media.silent_audio",
+            label = "Testing silent AudioTrack output",
+            module = ProbeModule.MEDIA,
+        ) {
+            val result = mediaProbe.testSilentAudio()
+            ActiveMutation(result.result) { data ->
+                data.copy(media = data.media?.copy(lastSilentAudioTest = result.record))
+            }
+        }
+    }
+
+    fun testMediaForegroundService() {
         val guard = activeGuard()
         if (guard != null) {
             showMessage(guard)
-            return null
-        }
-        val base = _state.value.report?.vpn
-        vpnInFlight = true
-        _state.update { it.copy(activeBusy = "Checking VPN authorization", message = null) }
-        val consentIntent = try {
-            vpnProbe.authorizationIntent()
-        } catch (throwable: Throwable) {
-            vpnInFlight = false
-            _state.update { it.copy(activeBusy = null) }
-            viewModelScope.launch { recordVpnFailure("VpnService.prepare failed", throwable) }
-            return null
-        }
-        if (consentIntent == null) {
-            val snapshot = vpnProbe.snapshotForPrepare(base, "ALREADY_AUTHORIZED", false)
-            _state.update { it.copy(activeBusy = "Establishing temporary VPN interface") }
-            publishVpn(snapshot)
-            startVpnService()
-            return null
-        }
-        publishVpn(vpnProbe.snapshotForPrepare(base, "CONSENT_REQUIRED", true))
-        _state.update { it.copy(activeBusy = "Waiting for VPN authorization") }
-        return consentIntent
-    }
-
-    fun onVpnConsentResult(granted: Boolean) {
-        if (!vpnInFlight) return
-        if (_state.value.restricted) {
-            vpnInFlight = false
-            _state.update {
-                it.copy(
-                    activeBusy = null,
-                    message = "VPN test aborted: driving restrictions became active before the service started.",
-                )
-            }
             return
         }
-        val report = _state.value.report ?: return
-        val base = report.vpn
-        if (!granted) {
-            vpnInFlight = false
-            val snapshot = vpnProbe.snapshotForConsent(base, granted = false, dialogRequested = true)
-            publishVpn(snapshot)
-            _state.update { it.copy(activeBusy = null) }
-            viewModelScope.launch {
-                val denied = vpnProbe.deniedResult("the system authorization dialog")
-                appendVpnResult(denied, snapshot)
-            }
+        if (mediaFgsInFlight) {
+            showMessage("A media foreground-service test is already running.")
             return
         }
-        publishVpn(vpnProbe.snapshotForConsent(base, granted = true, dialogRequested = true))
-        _state.update { it.copy(activeBusy = "Establishing temporary VPN interface") }
-        startVpnService()
-    }
-
-    private fun startVpnService() {
+        mediaFgsInFlight = true
+        mediaFgsTimeout?.cancel()
+        mediaFgsTimeout = viewModelScope.launch {
+            delay(8_000)
+            if (mediaFgsInFlight) {
+                mediaFgsInFlight = false
+                app.stopService(Intent(app, MediaCapabilityService::class.java))
+                _state.update {
+                    it.copy(
+                        activeBusy = null,
+                        message = "mediaPlayback foreground-service test timed out before a result arrived.",
+                    )
+                }
+            }
+        }
+        _state.update { it.copy(activeBusy = "Starting mediaPlayback foreground service", message = null) }
         try {
-            val component = app.startService(
-                Intent(app, VpnProbeService::class.java).setAction(VpnProbeService.ACTION_ESTABLISH),
+            app.startForegroundService(
+                Intent(app, MediaCapabilityService::class.java)
+                    .setAction(MediaCapabilityService.ACTION_TEST),
             )
-            if (component == null) {
-                throw IllegalStateException("startService returned null; the VPN service was not started.")
-            }
         } catch (throwable: Throwable) {
-            vpnInFlight = false
+            mediaFgsInFlight = false
+            mediaFgsTimeout?.cancel()
             _state.update { it.copy(activeBusy = null) }
-            viewModelScope.launch { recordVpnFailure("Starting the VPN probe service failed", throwable) }
+            viewModelScope.launch { recordMediaFgsFailure("Starting mediaPlayback foreground service failed", throwable) }
         }
     }
 
-    private suspend fun onVpnEstablished(outcome: VpnEstablishOutcome) {
-        val report = _state.value.report ?: return
-        val denied = outcome.exceptionClass?.contains("SecurityException") == true
-        val authorizationState = when {
-            denied -> "DENIED"
-            outcome.established -> "AUTHORIZED"
-            else -> report.vpn?.authorizationState ?: "ERROR"
+    fun testLms(host: String, httpPort: Int, slimprotoPort: Int) {
+        if (host.isBlank()) {
+            showMessage("Enter the LMS host or IP address first. It is not stored in the report.")
+            return
         }
-        val snapshot = vpnProbe.snapshotForOutcome(report.vpn, outcome, authorizationState)
+        runActive(
+            id = "lms.tcp_ports",
+            label = "Testing LMS HTTP and Slimproto ports",
+            module = ProbeModule.CONNECTIVITY,
+        ) {
+            val result = lmsProbe.testEndpoint(host, httpPort, slimprotoPort)
+            ActiveMutation(result.result) { data ->
+                data.copy(lmsNetwork = result.snapshot ?: data.lmsNetwork)
+            }
+        }
+    }
+
+    private suspend fun onMediaForegroundOutcome(outcome: MediaForegroundOutcome) {
+        val report = _state.value.report ?: return
         val status = when {
-            denied -> ResultStatus.DENIED
-            outcome.established && outcome.closed == true -> ResultStatus.SUCCESS
+            outcome.started && outcome.stopped -> ResultStatus.SUCCESS
+            outcome.error?.contains("SecurityException") == true -> ResultStatus.DENIED
             else -> ResultStatus.ERROR
         }
         val result = harness.run(
             activeMeta(
-                id = "vpn.establish",
-                module = ProbeModule.VPN,
-                name = "Establish and close a temporary TUN interface",
-                apiUsed = "VpnService.Builder.establish",
+                id = "media.foreground_service",
+                module = ProbeModule.MEDIA,
+                name = "Start and stop a mediaPlayback foreground service",
+                apiUsed = "Service.startForeground",
                 timeoutMs = 10_000,
             ),
         ) {
             TestOutcome(
                 status = status,
                 summary = when {
-                    denied -> "AAOS denied the temporary TUN interface even after authorization."
-                    outcome.established && outcome.closed == true ->
-                        "Temporary TUN interface established and closed in ${outcome.durationMs} ms; no routes, DNS, or app rules were configured."
-                    outcome.established ->
-                        "TUN interface was established, but close status was ${outcome.closed}."
+                    outcome.started && outcome.stopped ->
+                        "AAOS started and stopped a temporary mediaPlayback foreground service."
+                    outcome.started ->
+                        "The foreground service started, but stop status was incomplete: ${outcome.error ?: "unknown"}"
                     else ->
-                        "TUN interface was not established: ${outcome.exceptionClass ?: "unknown"} ${outcome.exceptionMessage ?: ""}".trim()
+                        "AAOS refused the mediaPlayback foreground service: ${outcome.error ?: "unknown"}"
                 },
                 details = buildString {
-                    appendLine("Authorization state: $authorizationState")
-                    appendLine("Addresses: ${outcome.addressesAdded}")
-                    appendLine("Routes: ${outcome.routesAdded} (intentionally empty)")
-                    appendLine("DNS: ${outcome.dnsServers} (intentionally empty)")
-                    appendLine("Allowed apps: ${outcome.allowedApplications} (intentionally empty)")
-                    appendLine("Session: ${VpnProbeService.SESSION_NAME}")
+                    appendLine("POST_NOTIFICATIONS granted=${outcome.notificationPermissionGranted}")
+                    appendLine("Notifications enabled=${outcome.notificationsEnabled}")
+                    appendLine("Channel created=${outcome.notificationChannelCreated}")
+                    appendLine("Service started=${outcome.started}, stopped=${outcome.stopped}")
                 },
-                exceptionClass = outcome.exceptionClass,
-                exceptionMessage = outcome.exceptionMessage,
+                exceptionClass = if (outcome.error == null) null else "ForegroundService",
+                exceptionMessage = outcome.error,
                 measurements = mapOf(
-                    "established" to outcome.established.toString(),
-                    "closed" to (outcome.closed?.toString() ?: "unknown"),
-                    "duration_ms" to outcome.durationMs.toString(),
+                    "started" to outcome.started.toString(),
+                    "stopped" to outcome.stopped.toString(),
                 ),
             )
         }
-        vpnInFlight = false
-        _state.update { it.copy(activeBusy = null) }
-        appendVpnResult(result, snapshot)
-    }
-
-    private suspend fun recordVpnFailure(stage: String, throwable: Throwable) {
-        val snapshot = (_state.value.report?.vpn ?: vpnProbe.emptySnapshot()).copy(
-            error = "${throwable.javaClass.simpleName}: ${throwable.message}",
+        val record = ForegroundServiceTestResult(
+            attempted = true,
+            started = outcome.started,
+            stopped = outcome.stopped,
+            notificationPermissionGranted = outcome.notificationPermissionGranted,
+            notificationsEnabled = outcome.notificationsEnabled,
+            notificationChannelCreated = outcome.notificationChannelCreated,
+            error = outcome.error,
         )
-        val result = vpnProbe.failureResult(stage, throwable)
-        appendVpnResult(result, snapshot)
-    }
-
-    private fun appendVpnResult(result: TestResult, snapshot: VpnCapabilitySnapshot) {
-        val report = _state.value.report ?: return
         val data = report.toProbeData()
         publish(
             data.copy(
-                vpn = snapshot,
+                media = data.media?.copy(lastForegroundServiceTest = record),
                 results = data.results + result,
             ),
         )
-        _state.update { it.copy(lastActiveResult = result, message = result.summary) }
+        mediaFgsInFlight = false
+        mediaFgsTimeout?.cancel()
+        _state.update {
+            it.copy(
+                activeBusy = null,
+                lastActiveResult = result,
+                message = result.summary,
+            )
+        }
     }
 
-    private fun publishVpn(snapshot: VpnCapabilitySnapshot) {
-        val report = _state.value.report ?: return
-        publish(report.toProbeData().copy(vpn = snapshot))
+    private suspend fun recordMediaFgsFailure(stage: String, throwable: Throwable) {
+        val result = harness.run(
+            activeMeta(
+                id = "media.foreground_service",
+                module = ProbeModule.MEDIA,
+                name = "Start and stop a mediaPlayback foreground service",
+                apiUsed = "Service.startForeground",
+                timeoutMs = 10_000,
+            ),
+        ) {
+            throw IllegalStateException(
+                "$stage: ${throwable.javaClass.simpleName}: ${throwable.message}",
+                throwable,
+            )
+        }
+        val record = ForegroundServiceTestResult(
+            attempted = true,
+            started = false,
+            stopped = false,
+            notificationPermissionGranted = notificationPermissionGranted(),
+            notificationsEnabled = false,
+            notificationChannelCreated = false,
+            error = result.exceptionMessage,
+        )
+        val report = _state.value.report
+        if (report != null) {
+            val data = report.toProbeData()
+            publish(
+                data.copy(
+                    media = data.media?.copy(lastForegroundServiceTest = record),
+                    results = data.results + result,
+                ),
+            )
+        }
+        mediaFgsTimeout?.cancel()
+        _state.update {
+            it.copy(
+                activeBusy = null,
+                lastActiveResult = result,
+                message = result.summary,
+            )
+        }
     }
 
     private fun carAppNotTested(): CarAppLibrarySnapshot = CarAppLibrarySnapshot(

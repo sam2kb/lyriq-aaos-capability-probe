@@ -7,14 +7,16 @@ vehicle test.
 
 - **No AAOS emulator run.** The build host has no `/dev/kvm`, and no AAOS system image was
   installed. Runtime Compose/AAOS behavior is unverified.
-- **No LYRIQ install or test.** Camera behavior, VHAL permissions, storage mounts, VPN
-  consent UI, and driving restrictions remain unknown on the actual vehicle.
-- **No Play Console access.** Eligibility, form-factor acceptance, screenshot approval,
-  tester installation, and VPN policy outcome are unverified.
+- **No LYRIQ install or test.** Camera behavior, VHAL permissions, storage mounts, audio
+  output, LAN access, foreground-service behavior, and driving restrictions remain unknown
+  on the actual vehicle.
+- **No Play Console access.** Eligibility, form-factor acceptance, screenshot approval, and
+  tester installation are unverified.
 - **No device screenshots.** The UI compiles and lint-passes, but its on-car layout,
   contrast, touch behavior, and text scaling have not been visually inspected.
-- **No instrumentation tests.** The 14 passing tests cover the result model, timeouts,
-  permissions classification, formatting, and JSON/report behavior only.
+- **No instrumentation tests.** The 15 passing tests cover the result model, timeouts,
+  permissions classification, endpoint classification, formatting, and JSON/report behavior
+  only.
 
 ## Camera
 
@@ -62,17 +64,37 @@ vehicle test.
   result records this separately.
 - Volume capacity may be unavailable if the app cannot stat the volume path.
 
-## VPN
+## Media
 
-- The test creates a local TUN with **no routes/DNS/apps** and closes it. It does not
-  perform a WireGuard handshake, hold keys, encrypt packets, contact a peer, or route
-  traffic.
-- `VpnService.prepare()` and the consent dialog may be blocked or absent on Cadillac AAOS.
-  That is a valid diagnostic result, not an app workaround target.
-- Google Play's VpnService policy is a likely distribution blocker for a diagnostic-only
-  probe. See [PLAY_INTERNAL_TESTING.md](PLAY_INTERNAL_TESTING.md). This is intentionally not
-  disguised as a VPN product.
-- The VPN test is not a substitute for testing an actual WireGuard implementation.
+- The decoder inventory proves that a codec advertises a MIME type, not that a particular
+  LMS stream/profile decodes. Media3/ExoPlayer is deliberately not bundled in this probe.
+- The only active audio test writes one second of silent PCM through AudioTrack. It does
+  not test MediaCodec decoding, gapless playback, audio focus, offload, volume control, or
+  sustained playback.
+- The foreground-service test starts/stops a `mediaPlayback` service and posts a temporary
+  notification. It does not create a MediaSession, play media, or verify media controls.
+- `POST_NOTIFICATIONS` may be denied; the service may still start while the notification is
+  not visible. Both states are recorded separately.
+- `MIME` support for Ogg maps the container to the platform Vorbis decoder where needed;
+  this is a capability signal, not an end-to-end stream test.
+- The media probe's audio path may use the current default output; it does not force each
+  available output device.
+
+## LMS network
+
+- The active test only proves TCP reachability to two ports. It sends no HTTP request, no
+  credentials, and no Slimproto handshake.
+- Only the first resolved address is tried per endpoint; a multi-address hostname may
+  connect on another address that this probe did not test.
+- The user-entered hostname/IP is intentionally omitted from JSON. Results cannot be tied
+  to a server from the report alone; keep a separate test note.
+- Android 16/target 36 uses the legacy implicit local-network path. Android 17/target 37
+  will require `ACCESS_LOCAL_NETWORK`; the app catalogues that boundary but does not request
+  it. A SqueezeClient port targeting 37 must add the declaration and runtime request.
+- `usesCleartextTraffic` is enabled because the fork uses `http://`; this is a deliberate
+  diagnostic/port requirement, not a recommendation for public deployments.
+- The probe does not test mDNS discovery, Wi-Fi roaming, IPv6 LAN routing, bandwidth, or
+  streaming.
 
 ## Build/distribution
 

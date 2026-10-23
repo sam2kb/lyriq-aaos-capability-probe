@@ -1,8 +1,5 @@
 package com.sam2kb.lyriqprobe.ui
 
-import android.app.Activity
-import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
@@ -10,98 +7,75 @@ import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.width
-import androidx.compose.material3.AlertDialog
-import androidx.compose.material3.HorizontalDivider
 import androidx.compose.material3.MaterialTheme
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Text
-import androidx.compose.material3.TextButton
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateOf
-import androidx.compose.runtime.remember
+import androidx.compose.runtime.saveable.rememberSaveable
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.text.font.FontFamily
+import androidx.compose.ui.text.input.KeyboardType
+import androidx.compose.ui.text.input.ImeAction
+import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.ui.unit.dp
 import com.sam2kb.lyriqprobe.ProbeUiState
 import com.sam2kb.lyriqprobe.ProbeViewModel
 import com.sam2kb.lyriqprobe.core.model.AudioInventory
+import com.sam2kb.lyriqprobe.core.model.LmsNetworkSnapshot
 import com.sam2kb.lyriqprobe.core.model.NetworkInventory
-import com.sam2kb.lyriqprobe.core.model.ResultStatus
 import com.sam2kb.lyriqprobe.core.model.UsbInventory
-import com.sam2kb.lyriqprobe.core.model.VpnCapabilitySnapshot
 import com.sam2kb.lyriqprobe.ui.theme.Amber
 import com.sam2kb.lyriqprobe.ui.theme.Faint
 import com.sam2kb.lyriqprobe.ui.theme.Green
-import com.sam2kb.lyriqprobe.ui.theme.Line
 import com.sam2kb.lyriqprobe.ui.theme.Muted
 import com.sam2kb.lyriqprobe.ui.theme.Paper
 import com.sam2kb.lyriqprobe.ui.theme.Red
-import com.sam2kb.lyriqprobe.ui.theme.SlateHigh
 import com.sam2kb.lyriqprobe.ui.theme.Teal
 
 @Composable
 fun NetworkScreen(state: ProbeUiState, viewModel: ProbeViewModel) {
     val report = state.report
     val connectivity = report?.connectivity
-    val vpn = report?.vpn
+    val lms = report?.lmsNetwork
     val canAct = state.parkedPermitted && state.activeBusy == null && !state.scanRunning
-    var confirmVpn by remember { mutableStateOf(false) }
-    val consentLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.StartActivityForResult(),
-    ) { result ->
-        viewModel.onVpnConsentResult(result.resultCode == Activity.RESULT_OK)
-    }
-
-    if (confirmVpn) {
-        AlertDialog(
-            onDismissRequest = { confirmVpn = false },
-            containerColor = SlateHigh,
-            title = { Text("Temporary VPN capability test?", style = MaterialTheme.typography.titleMedium, color = Paper) },
-            text = {
-                Text(
-                    "This will ask Android/Cadillac for VPN consent, then create a TUN interface with one private " +
-                        "address and NO routes, DNS servers, or application rules. It is closed immediately. " +
-                        "No WireGuard handshake, key, traffic redirection, or remote tunnel is involved. " +
-                        "No traffic should be routed through the interface. Do this only while parked.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = Muted,
-                )
-            },
-            confirmButton = {
-                TextButton(onClick = {
-                    confirmVpn = false
-                    val consentIntent = viewModel.startVpnTest()
-                    if (consentIntent != null) consentLauncher.launch(consentIntent)
-                }) {
-                    Text("REQUEST CONSENT", color = Amber, style = MaterialTheme.typography.labelMedium)
-                }
-            },
-            dismissButton = {
-                TextButton(onClick = { confirmVpn = false }) {
-                    Text("CANCEL", color = Muted, style = MaterialTheme.typography.labelMedium)
-                }
-            },
-        )
-    }
+    var host by rememberSaveable { mutableStateOf("") }
+    var httpPort by rememberSaveable { mutableStateOf("9000") }
+    var slimprotoPort by rememberSaveable { mutableStateOf("3483") }
+    val httpPortValue = httpPort.toIntOrNull()
+    val slimprotoPortValue = slimprotoPort.toIntOrNull()
+    val portsValid = httpPortValue != null && httpPortValue in 1..65_535 &&
+        slimprotoPortValue != null && slimprotoPortValue in 1..65_535
 
     ScreenScroll {
         PageHeader(
-            kicker = "Connectivity / VPN",
-            title = "Network & VPN capability",
-            description = "Read-only connectivity inventory plus an explicit VpnService consent and temporary-TUN " +
-                "test. The VPN test is a capability probe, not a VPN client.",
+            kicker = "Connectivity / LMS",
+            title = "Network & LMS readiness",
+            description = "Connectivity inventory plus the two TCP paths a SqueezeClient port needs: the LMS " +
+                "HTTP API and the local-player Slimproto port. The entered host is not written to the report.",
             aside = {
-                if (vpn != null) {
-                    SmallTag(vpn.authorizationState, vpnColor(vpn))
+                if (lms != null) {
+                    SmallTag(
+                        when {
+                            lms.lastTest.any { it.connected } -> "LMS REACHABLE"
+                            lms.lastTest.isNotEmpty() -> "LMS FAILED"
+                            else -> "LMS UNTESTED"
+                        },
+                        when {
+                            lms.lastTest.any { it.connected } -> Green
+                            lms.lastTest.isNotEmpty() -> Red
+                            else -> Amber
+                        },
+                    )
                 }
             },
         )
 
         if (connectivity == null) {
-            EmptyNotice("Run Quick Scan to inventory connectivity and VPN authorization state.")
+            EmptyNotice("Run Quick Scan to inventory connectivity and LMS network policy.")
             Spacer(Modifier.height(12.dp))
             ActionButton(
                 "Run Quick Scan",
@@ -112,63 +86,97 @@ fun NetworkScreen(state: ProbeUiState, viewModel: ProbeViewModel) {
             return@ScreenScroll
         }
 
-        Panel(title = "VPN capability", kicker = "VpnService.prepare → establish → close", accent = vpnColor(vpn)) {
-            if (vpn == null) {
+        Panel(title = "LMS endpoint probe", kicker = "SqueezeClient port path", accent = Teal) {
+            if (lms == null) {
                 Text(
-                    "VPN probe has not run in this session. Quick Scan could not read a VPN snapshot.",
+                    "LMS network policy has not been scanned. Rerun Quick Scan.",
                     style = MaterialTheme.typography.bodySmall,
                     color = Muted,
                 )
             } else {
-                Notice(
-                    if (vpn.interfaceEstablished == true) NoticeTone.SUCCESS
-                    else if (vpn.authorizationState.contains("DENIED", true)) NoticeTone.DANGER
-                    else NoticeTone.INFO,
-                    when {
-                        vpn.interfaceEstablished == true && vpn.interfaceClosed == true ->
-                            "A temporary TUN interface was established and closed. No routes, DNS servers, or allowed apps were configured."
-                        vpn.authorizationState.contains("DENIED", true) ->
-                            "VPN authorization was denied. No TUN interface was created."
-                        vpn.authorizationState == "CONSENT_REQUIRED" ->
-                            "Quick Scan called VpnService.prepare(); the OS says consent is required. No dialog was shown by Quick Scan."
-                        vpn.interfaceEstablished == false ->
-                            "The service started but establish() did not produce a TUN interface."
-                        else ->
-                            "VPN capability is ${vpn.authorizationState.lowercase().replace('_', ' ')}."
-                    },
-                )
+                LmsPolicy(lms)
                 Spacer(Modifier.height(12.dp))
-                KeyValue("API available", vpn.apiAvailable.toString())
-                KeyValue("Service declared", vpn.serviceDeclared.toString())
-                KeyValue("BIND_VPN_SERVICE", vpn.bindPermissionProtected.toString())
-                KeyValue("Service exported", vpn.serviceExported?.toString() ?: "unknown")
-                KeyValue("VPN intent filter", vpn.vpnIntentFilterPresent.toString())
-                KeyValue("prepare() state", vpn.authorizationState)
-                KeyValue("Consent dialog requested", vpn.consentDialogRequested.toString())
-                KeyValue("Interface established", vpn.interfaceEstablished?.toString() ?: "not attempted")
-                KeyValue("Interface closed", vpn.interfaceClosed?.toString() ?: "not attempted")
-                KeyValue("Session name", vpn.sessionName ?: "—")
-                KeyValue("Addresses", vpn.addressesAdded.ifEmpty { listOf("none") }.joinToString())
-                KeyValue("Routes", vpn.routesAdded.ifEmpty { listOf("none") }.joinToString())
-                KeyValue("DNS", vpn.dnsServers.ifEmpty { listOf("none") }.joinToString())
-                KeyValue("Allowed apps", vpn.allowedApplications.ifEmpty { listOf("none") }.joinToString())
-                KeyValue("Duration", vpn.durationMs?.let { "$it ms" } ?: "—")
-                val vpnError = vpn.error
-                if (vpnError != null) {
-                    KeyValue("Error", vpnError, valueColor = Red)
-                }
-                Spacer(Modifier.height(12.dp))
-                ActionButton(
-                    label = if (state.activeBusy != null) "VPN test busy" else "Test VPN consent + TUN",
-                    onClick = { confirmVpn = true },
-                    enabled = canAct,
-                    primary = true,
+                OutlinedTextField(
+                    value = host,
+                    onValueChange = { host = it },
+                    modifier = Modifier.fillMaxWidth(),
+                    label = { Text("LMS host or IP") },
+                    placeholder = { Text("e.g. 192.168.1.20 or lms.local") },
+                    singleLine = true,
+                    keyboardOptions = KeyboardOptions(
+                        keyboardType = KeyboardType.Uri,
+                        imeAction = ImeAction.Next,
+                    ),
                 )
                 Spacer(Modifier.height(8.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(8.dp)) {
+                    OutlinedTextField(
+                        value = httpPort,
+                        onValueChange = { httpPort = it.filter(Char::isDigit) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("HTTP port") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                    OutlinedTextField(
+                        value = slimprotoPort,
+                        onValueChange = { slimprotoPort = it.filter(Char::isDigit) },
+                        modifier = Modifier.weight(1f),
+                        label = { Text("Slimproto port") },
+                        singleLine = true,
+                        keyboardOptions = KeyboardOptions(keyboardType = KeyboardType.Number),
+                    )
+                }
+                Spacer(Modifier.height(10.dp))
+                ActionButton(
+                    label = if (state.activeBusy != null) "Network test busy" else "Test LMS ports",
+                    onClick = {
+                        if (httpPortValue != null && slimprotoPortValue != null) {
+                            viewModel.testLms(host, httpPortValue, slimprotoPortValue)
+                        }
+                    },
+                    enabled = canAct && host.isNotBlank() && portsValid,
+                    primary = true,
+                )
+                if (!portsValid) {
+                    Spacer(Modifier.height(5.dp))
+                    Text("Ports must be 1–65535.", style = MaterialTheme.typography.labelSmall, color = Amber)
+                }
+                Spacer(Modifier.height(8.dp))
                 Text(
-                    "What this proves: whether AAOS shows the VPN consent dialog and whether an ordinary app can " +
-                        "create and close a TUN interface. What it does not prove: WireGuard handshake, key storage, " +
-                        "packet routing, throughput, or background survivability. No traffic is intentionally routed.",
+                    "This opens two short TCP connections and closes them. It does not send LMS credentials, " +
+                        "stream audio, or save the hostname/IP. The port probe is active only while parked.",
+                    style = MaterialTheme.typography.labelSmall,
+                    color = Faint,
+                )
+                if (lms.lastTest.isNotEmpty()) {
+                    Spacer(Modifier.height(12.dp))
+                    lms.lastTest.forEach { endpoint ->
+                        Row(
+                            Modifier.fillMaxWidth().padding(vertical = 4.dp),
+                            horizontalArrangement = Arrangement.SpaceBetween,
+                        ) {
+                            Text(
+                                "${endpoint.label} : ${endpoint.port}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = Paper,
+                            )
+                            Text(
+                                if (endpoint.connected) {
+                                    "CONNECTED · ${endpoint.latencyMs} ms"
+                                } else {
+                                    "${endpoint.errorClass ?: "FAILED"} · ${endpoint.errorMessage ?: ""}"
+                                },
+                                style = MaterialTheme.typography.labelSmall,
+                                color = if (endpoint.connected) Teal else Red,
+                            )
+                        }
+                    }
+                }
+                Spacer(Modifier.height(8.dp))
+                Text(
+                    "Endpoint kind: ${lms.endpointKind ?: "not tested"} · HTTP cleartext permitted: " +
+                        "${lms.cleartextTrafficPermitted}",
                     style = MaterialTheme.typography.labelSmall,
                     color = Faint,
                 )
@@ -263,11 +271,15 @@ fun NetworkScreen(state: ProbeUiState, viewModel: ProbeViewModel) {
     }
 }
 
-private fun vpnColor(vpn: VpnCapabilitySnapshot?): androidx.compose.ui.graphics.Color = when {
-    vpn?.interfaceEstablished == true && vpn.interfaceClosed == true -> Green
-    vpn?.authorizationState?.contains("DENIED", true) == true -> Red
-    vpn?.authorizationState == "CONSENT_REQUIRED" -> Amber
-    else -> Teal
+@Composable
+private fun LmsPolicy(lms: LmsNetworkSnapshot) {
+    KeyValue("INTERNET permission", lms.internetPermissionGranted.toString())
+    KeyValue("ACCESS_LOCAL_NETWORK defined", lms.localNetworkPermissionDefined.toString())
+    KeyValue("ACCESS_LOCAL_NETWORK granted", lms.localNetworkPermissionGranted.toString())
+    KeyValue("NEARBY_WIFI_DEVICES defined", lms.nearbyWifiPermissionDefined.toString())
+    KeyValue("Cleartext HTTP permitted", lms.cleartextTrafficPermitted.toString())
+    Spacer(Modifier.height(5.dp))
+    Text(lms.note, style = MaterialTheme.typography.labelSmall, color = Faint)
 }
 
 @Composable

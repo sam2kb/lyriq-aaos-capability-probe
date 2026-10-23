@@ -8,7 +8,7 @@ Official background:
 
 - [Distribute to cars](https://developer.android.com/training/cars/distribute)
 - [Android Automotive OS app quality](https://developer.android.com/docs/quality-guidelines/automotive/app-quality)
-- [Google Play VpnService policy](https://support.google.com/googleplay/android-developer/answer/9888170)
+- [Android 17 local-network permission](https://developer.android.com/privacy-and-security/local-network-permission)
 
 ## What this build declares
 
@@ -28,8 +28,9 @@ one.
 ## Setup sequence
 
 1. Create the Play Console app with package `com.sam2kb.lyriqprobe`.
-2. Complete App content / privacy declarations. The app is offline and declares no
-   `INTERNET` permission. It does not collect VIN, location, accounts, or device serials.
+2. Complete App content / privacy declarations. The app is a parked diagnostic, not a
+   media client. It declares INTERNET only for the explicit LMS TCP test and does not
+   collect VIN, location, accounts, device serials, or the LMS hostname/IP.
 3. Add **Advanced settings → Form factors → Android Automotive OS**.
 4. Add AAOS screenshots. Current Play guidance asks for at least two landscape and two
    portrait screenshots; the referenced dimensions are 1024 × 786 and 800 × 1280. Use the
@@ -53,18 +54,23 @@ Specific unresolved risks:
 
 - **Category/eligibility.** A diagnostic-only parked app may be accepted, need adjustment,
   or be rejected. No untested claim is made here.
-- **VPN policy.** The Google Play VpnService policy permits VpnService only for apps whose
-  core functionality is VPN or for listed exceptions, and requires encrypted tunnels to a
-  remote endpoint. This probe creates a temporary local TUN with no remote endpoint. It is
-  a capability test, not a VPN product. It may be rejected or policy-flagged even on
-  internal testing. Do not disguise the app as a VPN or network tool to get around this;
-  no remote tunnel or encryption endpoint exists.
-- **Unused permissions.** Location and Bluetooth-scan permissions were deliberately left
-  out of the manifest because the app does not use them. They still appear in the
-  permission catalogue. Keep it that way unless a real feature needs them.
+- **Network and cleartext.** The app declares INTERNET and permits cleartext because the
+  SqueezeClient path uses HTTP on the LAN. The LMS socket is explicit and sends no payload,
+  but the store listing and data-safety answers must describe the network use accurately.
+  Do not describe it as an offline app.
+- **Media foreground service.** The diagnostic posts a temporary mediaPlayback notification
+  and starts a short foreground service. This is normal Android permission use but should
+  be disclosed consistently in the listing.
+- **Android 17 local network.** This target-36 build uses the legacy implicit LAN path. A
+  target-37 SqueezeClient port must declare and request `ACCESS_LOCAL_NETWORK`; do not add
+  the permission to this target-36 probe merely to suppress that migration work.
+- **Sensitive permission scope.** Unused location and Bluetooth-scan permissions remain
+  out of the manifest; they still appear in the catalogue. INTERNET is used only by the
+  explicit LMS test. Keep the declared set minimal.
 - **Screenshots / listing.** AAOS screenshots and a store listing are still required.
-- **VPN declaration.** If Play Console asks for a VPN declaration, answer factually. The
-  probe does not establish a remote tunnel and should not be represented as one.
+- **Accessibility/foreground-service declarations.** Answer Play Console questions about
+  notifications and foreground services factually; the media service is a probe, not a
+  persistent player.
 
 If Play refuses the build, the exact block should be recorded before considering any
 alternative. Sideloading the debug APK is a fallback for capability testing only and is not
@@ -75,8 +81,8 @@ a Play distribution path.
 - Play Console app/form-factor status and any policy warning text.
 - Whether the Internal testing track offers the app to the LYRIQ.
 - Package name/version installed on the car (`com.sam2kb.lyriqprobe`, version 1).
-- Whether the VPN consent dialog is shown by Cadillac's system UI and the result of
-  accepting it.
+- Whether the mediaPlayback foreground service and its notification appear on AAOS.
+- Whether the car can reach the LMS HTTP and Slimproto ports.
 - JSON report exported from the vehicle.
 - Any AAOS launcher/driving-restriction behavior.
 

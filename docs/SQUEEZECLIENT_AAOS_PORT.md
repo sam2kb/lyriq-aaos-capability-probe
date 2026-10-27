@@ -52,6 +52,40 @@ distraction-optimized. For Car App Library templates, the generated `CarAppActiv
 launcher/entry point and must be distraction-optimized; do not retain the phone
 `MainActivity` as a car launcher.
 
+### Name, package and reuse boundary
+
+The app does **not** need to be called SqueezeClient. The LMS wire protocol is independent of
+the product name, and a clean-room AAOS app should use its own name and package to avoid
+confusion with the phone app. “SqueezeClient AAOS” is a useful descriptive working title, but
+it should not imply that this is the same code or the same store listing.
+
+Recommended:
+- Repository working name: `squeezeclient-aaos` (organizational only).
+- Product name: a distinct name such as “Squeeze Auto” or “LMS Auto” (final choice open).
+- Package: your own namespace, for example `com.sam2kb.lmsauto`; **do not reuse
+  `de.maniac103.squeezeclient`** for a separate clean-room app. That would collide with the
+  phone app/Play identity and use another author's namespace. If continuity with the existing
+  listing is more important than independence, use the same package and an AAOS-only track
+  instead; that is a separate business decision.
+- Avoid “Squeezebox” as a product name; it is associated with Logitech. “LMS” is the safer
+  descriptive term.
+
+The latest `origin/main` measures 15,883 lines across 154 source files:
+
+| Area | Lines | Share | Reuse decision |
+| --- | ---: | ---: | --- |
+| Phone UI Kotlin | 7,174 | 45% | Do not copy; car UI is template/host-rendered |
+| Services/local player/downloads | 3,703 | 23% | Do not copy wholesale; local player/downloads deferred |
+| CometD protocol | 3,194 | 20% | Reference; reimplement selected controller operations |
+| LMS/Jive models | 927 | 6% | Reference; copy only under GPL-compatible terms |
+| View/util extensions | 695 | 4% | Mostly phone UI glue; exclude |
+
+The CometD/model layer is about a quarter of the source before pruning. A controller-only
+AAOS app needs only a subset of those requests/responses; direct code copy should therefore be
+small, not the majority of the old app. The existing seven test files are useful as protocol
+fixtures, but copying them carries the GPLv3 obligation. Reading the protocol and writing a
+fresh client is the clean-room path.
+
 ### v1 feature boundary (controller-only)
 
 Include:
@@ -138,12 +172,11 @@ Automotive OS track. A media artifact cannot support both the mobile and AAOS ex
 That means a separate AAOS artifact/release is not just cleaner; it is the distribution
 model for this category.
 
-**Recommendation:** keep the existing phone/F-Droid release and add a separate
-`:automotive` app module (or an automotive-only flavor with its own manifest/source set)
-that depends on a shared core. Use the same package name if you want one store listing and
-the same statistics; a separate package is optional but creates a separate listing and
-review history. In either case use an AAOS-only track and a higher version code for the
-automotive artifact.
+**Recommendation:** keep the existing phone/F-Droid release untouched and create a separate
+AAOS-only artifact/track. For the current clean-room direction, give the new app its own
+namespace/package. If you later choose to adapt the existing code instead, the same package
+with an AAOS-only track is possible; that is a separate business/versioning choice. Use a
+higher version code for the automotive artifact either way.
 
 ### 3. The current local-player foreground service is a compliance risk
 

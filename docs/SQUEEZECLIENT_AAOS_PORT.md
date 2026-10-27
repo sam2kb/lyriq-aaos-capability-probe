@@ -1,92 +1,196 @@
-# SqueezeClient AAOS port assessment
+# SqueezeClient AAOS port decision record
 
-This note records what the existing SqueezeClient fork needs on Android Automotive OS and
-which facts the probe is designed to establish. It is based on source inspection of
-`/srv/dev/squeezeclient` (Media3 local playback, LMS HTTP/Slimproto, WorkManager downloads),
-not on an AAOS build or a vehicle run.
+**Status:** findings only — no SqueezeClient code was changed.
+**Source inspected:** `sam2kb/squeezeclient` `origin/main` at
+`4bcb826a3d1b3bba8e51a88cd196183e388d8737` (version 2.5, 2026-10-23).
+**Probe evidence:** v1.1.0 build; no new exported vehicle JSON was present in this repository
+when these findings were recorded.
 
-## What the fork already contains
+## Bottom line
 
-- `INTERNET`, `FOREGROUND_SERVICE`, `FOREGROUND_SERVICE_MEDIA_PLAYBACK`,
-  `FOREGROUND_SERVICE_DATA_SYNC`, `POST_NOTIFICATIONS`, `RECEIVE_BOOT_COMPLETED`.
-- Media3 `MediaSessionService` plus `LocalPlaybackService` with a `mediaPlayback`
-  foreground-service type.
-- `usesCleartextTraffic="true"`; LMS server URLs are built as `http://…`.
-- LMS HTTP API (normally port 9000) and Slimproto local-player TCP socket (port 3483).
-- Local decoders for MP3, FLAC, OGG/Vorbis, and AAC through Media3/custom extractors.
-- WorkManager download path with a `dataSync` foreground service.
-- Boot receiver and Android 12+/15-aware startup worker.
-- A phone-oriented View/Material 3 UI with a nav drawer and multi-pane now-playing screen.
+A port is technically possible, but **not by changing a few manifest lines**. The phone app
+cannot be shipped as the AAOS media UI. A **separate AAOS-only build/module and Play track**
+is preferred, sharing the LMS/network/media core with the phone app. The in-car interface
+should be either:
 
-## What the probe now measures
+1. **Car App Library media templates** (best car-native UI, but templated media apps are
+   currently beta and limited to internal/closed testing), or
+2. **A car-host media app using MediaBrowser/MediaLibraryService** (no custom in-car UI;
+   the vehicle host draws the browsing/playback screens).
 
-| Area | Probe output |
-| --- | --- |
-| Codecs | Platform audio decoders, relevant MIME support, hardware/software flags |
-| Audio path | Native rate, frames/buffer, min buffers, direct PCM support, output devices |
-| Active audio | One-second silent AudioTrack write; play state and release |
-| Media session | Platform MediaSession/MediaBrowserService class availability |
-| Notifications/FGS | POST_NOTIFICATIONS, notification enablement, FGS permissions, actual mediaPlayback start/stop |
-| LMS network | INTERNET, cleartext policy, ACCESS_LOCAL_NETWORK boundary |
-| LMS active | TCP reachability to HTTP and Slimproto ports, latency, error class |
-| Storage | SAF write/read/delete in a user-selected folder |
-| AAOS state | Build, car service, driving restrictions, system features |
+The current full-screen phone UI can be kept for phones, not used as the AAOS media
+experience. Local device playback, downloads, boot auto-start, Wear support, and custom
+volume control should be deferred or disabled for the first AAOS release.
 
-The probe deliberately **does not** bundle Media3/ExoPlayer. The media results are a
-platform-readiness signal; the fork's actual Media3 pipeline still needs a port build.
+## What the latest source already has
 
-## Manifest/build changes for an AAOS port
+- LMS HTTP/CometD connection code and Slimproto local-player socket.
+- Media3 `MediaSessionService` (`service/mediasession/MediaService.kt`) for LMS player
+  control.
+- A separate `LocalPlaybackService` with `foregroundServiceType="mediaPlayback"` and
+  Media3/ExoPlayer playback.
+- Media notification, POST_NOTIFICATIONS, `mediaPlayback` and `dataSync` foreground-service
+  permissions.
+- WorkManager downloads and an Android 15-aware boot/startup worker.
+- Cleartext HTTP to LMS (`usesCleartextTraffic="true"`), INTERNET permission.
+- Responsive phone resources, including landscape layouts, but no car-specific UI or
+  Android Auto/AAOS metadata.
+- Wear/GMS support in the `gms` flavor and `:wear`/`:wearapi` modules.
 
-1. Add the automotive feature and decide distribution:
+## Hard findings
 
-   ```xml
-   <uses-feature android:name="android.hardware.type.automotive"
-                 android:required="true" />
-   ```
+### 1. The current app is not an AAOS media app
 
-   A parked app distributed on an AAOS-only track can use `required="true"` according to
-   Play's current distribution guidance. Do not mark the activity distraction-optimized.
+- There is no `android.hardware.type.automotive` feature, no
+  `com.android.automotive` metadata, no `automotive_app_desc.xml`, no Car App Library
+  dependency, and no `CarAppService`/`CarAppActivity`.
+- The current entry point is a launcher activity with a phone drawer/now-playing UI. Google's
+  AAOS media guidance says the vehicle media host draws the media UI and a classic AAOS media
+  build should not expose launcher activities. A templated app instead uses a
+  distraction-optimized `CarAppActivity`.
+- `MediaService` is a Media3 `MediaSessionService`, but it is not a browse tree. There is no
+  `MediaLibraryService`/`MediaBrowserService.onGetRoot/onGetChildren` implementation for a car
+  host to browse LMS content. The manifest's `android.media.browse.MediaBrowserService` filter
+  does not add that implementation.
+- The phone UI, MotionLayout now-playing screen, drawer, player drag/drop, slideshow, and
+  artwork transitions are not an acceptable car media UI. They can remain in the phone
+  module; they cannot be the AAOS UI.
 
-2. Keep `INTERNET`, cleartext policy, and the existing manifest network stack. The probe
-   intentionally mirrors the fork's `usesCleartextTraffic="true"` so the LAN test is meaningful.
+### 2. Media apps need a dedicated AAOS-only track
 
-3. Android 17 / targetSdk 37 local-network migration:
+Google Play's current distribution rules say media apps must use a dedicated Android
+Automotive OS track. A media artifact cannot support both the mobile and AAOS experiences.
+That means a separate AAOS artifact/release is not just cleaner; it is the distribution
+model for this category.
 
-   - Add `android.permission.ACCESS_LOCAL_NETWORK` and request it at runtime before the
-     first LMS socket. It is in the `NEARBY_DEVICES` group.
-   - The current fork targets 36; on Android 16 that path is legacy/implicit. A target-37
-     build will be blocked by default without the permission.
-   - Do not add the permission to this target-36 diagnostic solely to hide the migration;
-     the probe reports the boundary instead.
+**Recommendation:** keep the existing phone/F-Droid release and add a separate
+`:automotive` app module (or an automotive-only flavor with its own manifest/source set)
+that depends on a shared core. Use the same package name if you want one store listing and
+the same statistics; a separate package is optional but creates a separate listing and
+review history. In either case use an AAOS-only track and a higher version code for the
+automotive artifact.
 
-4. Keep the Media3 `MediaSessionService` and both foreground-service types. Verify the
-   actual LMS Media3 pipeline on the car, including notification visibility and audio focus.
+### 3. The current local-player foreground service is a compliance risk
 
-5. Add an AAOS layout pass: the current phone UI needs landscape/large-screen testing. A
-   full-screen parked app does not automatically become a Car App Library app; do not
-   assume template/media category eligibility.
+`LocalPlaybackService` is a plain `Service` with `foregroundServiceType="mediaPlayback"`,
+separate from the Media3 `MediaSessionService`. The official AAOS media FAQ currently says
+the only allowed foreground-service use case is downloading content for offline use. The
+current service may be acceptable only if it is tied to a proper MediaSession/playback
+architecture, or it may be rejected/restricted by AAOS/Play. This needs an explicit device
+test and likely a refactor.
 
-6. Keep the download path's SAF/app-private storage behavior. The probe's SAF test proves
-   only that the app can write to a folder the user selects.
+If local playback cannot be made compliant, the first AAOS release should be
+**controller-only**: browse the LMS library and control existing LMS players, without
+playing audio on the car head unit.
 
-## Go/no-go questions for the port
+### 4. Templated media apps are still beta
 
-- Do all four required decoders exist on the LYRIQ's AAOS image? (Probe: Media.)
-- Does a real `mediaPlayback` foreground service start, notify, and stop? (Probe: Media.)
-- Can the car open LMS HTTP and Slimproto TCP? (Probe: Network & LMS.)
-- Does LAN access survive the Android 17 target bump without a permission prompt failure?
-  (Probe: policy; needs a target-37 test build.)
-- Does the AAOS launcher expose the activity while parked, and block it while driving?
-  (Probe: driving state; real-car UI test.)
-- Does the phone UI remain usable on the center display? (Not probed; needs screenshots.)
-- Does Play accept a SqueezeClient-style media app on an AAOS track, and what category/track
-  restrictions apply? (Not probed; Play Console.)
+Current Android for Cars documentation says Car App Library media templates are in beta and
+can be published only to **internal and closed testing** tracks; open/production tracks are
+not yet permitted. That is acceptable for the immediate LYRIQ internal-test goal, but it is
+a production blocker. The alternative is the classic car-host MediaBrowser/MediaLibraryService
+model, which gives up the custom in-app look and uses the vehicle's media UI.
 
-## Suggested port sequence
+### 5. Android 17 local-network permission is a migration item
 
-1. Run this probe on the LYRIQ; export JSON.
-2. Add the automotive feature and a landscape test build of SqueezeClient.
-3. Test a real LMS connection and local playback with Media3, then the FGS/notification path.
-4. Add `ACCESS_LOCAL_NETWORK` only when moving targetSdk to 37.
-5. Revisit Play category/track eligibility before upload.
-6. Keep dashcam work separate; this probe's camera path is independent of the media port.
+The fork targets 36 today and uses the legacy implicit LAN path. Android 17 / target 37
+requires the `ACCESS_LOCAL_NETWORK` runtime permission for LMS/LAN sockets. Add it and
+request it before the first LMS connection when the target moves to 37. The probe already
+reports the permission boundary but does not declare it in order to keep the target-36
+behavior meaningful. See the [Android local-network guidance](https://developer.android.com/privacy-and-security/local-network-permission).
+
+## What the restricted LYRIQ access means
+
+SqueezeClient does **not** use the camera, VHAL, vehicle properties, or vehicle sensors.
+Camera/VHAL restrictions reported by the probe therefore do not block the port.
+
+The port depends on the probe's other results:
+
+- Audio decoders and the AudioTrack/audio-output path;
+- `mediaPlayback` foreground service and notification behavior;
+- INTERNET/local-network/cleartext access to the LMS host;
+- app-private/SAF storage for downloads, if downloads are kept;
+- AAOS media host / Car App Library host availability on the LYRIQ.
+
+If local network, audio output, notifications, or local-player foreground-service behavior
+is restricted on the car, the port is either controller-only or blocked. These are the
+gating unknowns because the vehicle JSON was not committed to this repository.
+
+## Feature decision for the AAOS build
+
+| Feature | AAOS v1 decision | Reason |
+| --- | --- | --- |
+| Phone UI, drawer, MotionLayout now-playing, slideshow | Remove from AAOS build; keep phone-only | Car media UI is host/template drawn |
+| Wear companion, Wear API, GMS flavor | Exclude from AAOS build | No Wear/phone companion role in the car |
+| LMS library browse/search | Keep | Core value; implement in templates/host media tree |
+| Playback/volume control of LMS players | Keep | Core controller function |
+| Multi-player management/drag/drop | Simplify for v1 | Car UI/UX restrictions; phone interaction model not suitable |
+| Server setup/settings | Keep as vehicle-optimized settings/sign-in activity | Needed; must not be distraction-optimized |
+| Local device playback | Defer until audio/audio-focus/FGS test passes; then refactor under MediaSession | Plain FGS is a policy/technical risk |
+| Device-volume mode | Turn off; use car volume | Avoid fighting the vehicle audio policy |
+| Downloads/dataSync | Defer for v1, or keep parked-only | FGS is allowed for downloads, but storage/UX needs validation |
+| Boot auto-start of local player | Off by default | Android 15+ boot/FGS restrictions and car expectations |
+| Android Auto metadata/Wear | Do not include in AAOS artifact | Different platform; avoid manifest/UI conflicts |
+| Voice/search | Required for a Car App Library media app quality review | VC-1/MFT requirements if templates are used |
+
+## Architecture changes needed
+
+1. Extract a shared `:core` (or `:media-core`) module from the current `app`: LMS connection,
+   CometD models, player state, MediaSession control, preferences/server config, and optional
+   local playback/download code.
+2. Keep `:app` as the phone app and `:wear` as phone companion; keep the FOSS flavor free of
+   Play Services. Build the AAOS artifact from a new `:automotive` module using the FOSS
+   base.
+3. Add the automotive manifest:
+   - `android.hardware.type.automotive` required true;
+   - `android:appCategory="audio"`;
+   - `com.android.automotive` metadata + `automotive_app_desc.xml` with `<uses name="media"/>`;
+   - no phone launcher activities in the automotive module;
+   - for templates: `androidx.car.app:app-automotive`, `CarAppService` category `MEDIA`,
+     `androidx.car.app.MEDIA_TEMPLATES`, min car API 8, and a distraction-optimized
+     `CarAppActivity`;
+   - for a split template APK, `android.software.car.templates_host.media` required true;
+     for a single APK, false and a MediaBrowserService fallback.
+4. Implement either:
+   - **Car App Library templates**: `MediaPlaybackTemplate`, library/search screens,
+     `MediaPlaybackManager.registerMediaPlaybackToken` using the Media3 platform token, and
+     vehicle-optimized server settings; or
+   - **MediaLibraryService/MediaBrowserService**: car-host browse tree, search, playback
+     state, voice/search and error handling, with no custom car UI.
+5. Add AAOS-specific tests: template host availability, media FGS/notification, LAN access,
+   audio focus, car volume, offline/download retention, target-37 permission.
+
+## Verdict
+
+- **Possible?** Yes, technically. The core network and Media3 playback code is reusable.
+- **Direct APK/manifest port?** No. The car UI and media browse integration are missing.
+- **Separate AAOS-only release?** **Yes, preferred and effectively required for a media app.**
+  Use a shared core and a dedicated `:automotive` module/artifact plus an AAOS-only track.
+  Reusing the package name is preferred; a separate package is an optional business choice,
+  not a technical requirement.
+- **Templated UI for internal testing?** Yes, but only while Google keeps media templates in
+  beta/internal-closed testing.
+- **Production-ready today?** Not with the current phone UI or templated beta. The classic
+  MediaBrowser/MediaLibraryService path is the production-compatible route, but it means
+  accepting the car host's media UI.
+- **Trim/disable first:** Wear/GMS, phone UI, slideshow/motion effects, device-volume mode,
+  boot auto-start, and likely local playback/downloads until the LYRIQ probe and an AAOS
+  media build prove them.
+
+## Evidence needed to move from decision to implementation
+
+1. LYRIQ probe JSON for media, LMS network, FGS/notification and storage, or a repeat test
+   while parked.
+2. The car's AAOS version and whether the Car App Library media host feature is present.
+3. A minimal AAOS build of SqueezeClient with one of the two car interfaces above, tested
+   first as controller-only.
+4. A decision on local playback after the audio/FGS result; do not port it blindly.
+
+## References
+
+- [Build templated media apps for cars](https://developer.android.com/training/cars/apps/media)
+- [Add Android Automotive OS support to a media app](https://developer.android.com/training/cars/media/automotive-os)
+- [Distribute to cars](https://developer.android.com/training/cars/distribute)
+- [Car app quality guidelines](https://developer.android.com/docs/quality-guidelines/car-app-quality)
+- [Android 17 local-network permission](https://developer.android.com/privacy-and-security/local-network-permission)
+- [SqueezeClient source](https://github.com/sam2kb/squeezeclient)

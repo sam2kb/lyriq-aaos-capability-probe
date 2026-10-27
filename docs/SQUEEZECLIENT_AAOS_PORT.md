@@ -1,6 +1,9 @@
 # SqueezeClient AAOS port decision record
 
 **Status:** findings only — no SqueezeClient code was changed.
+**Current direction (2026-10-26):** clean-room, AAOS-native, lean rewrite with selected
+features. This supersedes the earlier “extract a shared core and add an automotive module”
+recommendation below; the port findings remain the evidence base.
 **Source inspected:** `sam2kb/squeezeclient` `origin/main` at
 `4bcb826a3d1b3bba8e51a88cd196183e388d8737` (version 2.5, 2026-10-23).
 **Probe evidence:** v1.1.0 build; no new exported vehicle JSON was present in this repository
@@ -8,19 +11,91 @@ when these findings were recorded.
 
 ## Bottom line
 
-A port is technically possible, but **not by changing a few manifest lines**. The phone app
-cannot be shipped as the AAOS media UI. A **separate AAOS-only build/module and Play track**
-is preferred, sharing the LMS/network/media core with the phone app. The in-car interface
-should be either:
+A port is technically possible, but **not by changing a few manifest lines**. More
+importantly, a port is no longer the preferred implementation. The best option is a
+**clean-room, AAOS-native, lean app** that keeps SqueezeClient's product ideas and LMS
+protocol behavior but discards its phone shell, Wear/GMS code, and media-service
+architecture.
 
-1. **Car App Library media templates** (best car-native UI, but templated media apps are
-   currently beta and limited to internal/closed testing), or
-2. **A car-host media app using MediaBrowser/MediaLibraryService** (no custom in-car UI;
-   the vehicle host draws the browsing/playback screens).
+The in-car interface should be a native AAOS media experience using Car App Library media
+templates (best car-native UI; currently beta/internal-closed) or, if production is needed
+now, a car-host MediaBrowser/MediaLibraryService app. The phone UI can remain in the
+existing app; it is not the car UI.
 
-The current full-screen phone UI can be kept for phones, not used as the AAOS media
-experience. Local device playback, downloads, boot auto-start, Wear support, and custom
-volume control should be deferred or disabled for the first AAOS release.
+The first AAOS release should be **controller-only** unless local playback is proven on the
+LYRIQ. Local playback, downloads, boot auto-start, Wear support, and custom volume control
+are phase-2 or excluded features.
+
+## Clean-room AAOS-native plan (current direction)
+
+This is a new app, not a fork of the phone `app` module. Keep the phone/F-Droid release
+untouched and build a separate AAOS-only artifact alongside it (new repo or new top-level
+project). Reuse **protocol knowledge, wire formats, server semantics, and selected tests or
+fixtures**; do not migrate the Android UI, navigation, Wear/GMS layers, or service graph
+wholesale.
+
+### Native, lean stack
+
+- Kotlin + coroutines/Flow.
+- Media3 `MediaSession`/player for LMS player state and car media controls.
+- Car App Library media templates (`CarAppService`, `MediaPlaybackTemplate`,
+  `SectionedItemTemplate`, `MediaPlaybackManager`) for the car UI.
+- OkHttp + kotlinx.serialization for LMS HTTP/CometD, with the same protocol semantics
+  proven by the existing app.
+- DataStore or simple SharedPreferences for server configuration.
+- Manual constructor injection; no Wear, Play Services, Hilt, Room, or web wrapper unless a
+  concrete need appears.
+
+The only non-template UI in the AAOS app should be a small vehicle-optimized settings/sign-in
+activity for the LMS host, invoked through the car settings surface. It must not be marked
+distraction-optimized. For Car App Library templates, the generated `CarAppActivity` is the
+launcher/entry point and must be distraction-optimized; do not retain the phone
+`MainActivity` as a car launcher.
+
+### v1 feature boundary (controller-only)
+
+Include:
+
+- LMS server setup and connection diagnostics.
+- Library browse/search: artists, albums, tracks, playlists, favorites if cheap.
+- Player selection.
+- Play/pause/next/previous/seek, queue, volume for LMS players.
+- Now playing metadata/artwork through the template.
+- Reconnect/error states, including a useful “cannot reach LMS” message.
+- Template host and network permission checks.
+
+Explicitly exclude from v1:
+
+- Local on-car playback and Slimproto/audio output.
+- Downloads/offline library.
+- Wear companion, GMS flavor, Android Auto metadata/UI.
+- Phone drawer, MotionLayout now-playing, slideshow, artwork animations, drag/drop player
+  management, themes.
+- Device volume mode; use the car's volume policy.
+- Boot auto-start.
+
+### Phase 2 after vehicle evidence
+
+Local playback is the largest technical and policy risk. Add it only after the LYRIQ probe
+shows audio output, media foreground-service behavior and LAN access. If it is required,
+rework it under the MediaSessionService model rather than copying the current plain
+`LocalPlaybackService`; test audio focus and car volume first. Downloads can follow as a
+parked-only, user-managed offline feature.
+
+### Licensing check
+
+SqueezeClient is GPLv3. If code, tests, or resource files are copied into the clean-room
+app, the new app must be GPL-compatible. A clean-room reimplementation based on protocol
+behavior and public LMS documentation is a separate licensing decision. Resolve this before
+copying implementation files.
+
+### Why not the shared-module port
+
+A shared module could preserve more code, but it carries the phone UI assumptions and the
+existing local-player/FGS architecture into the car. A lean rewrite makes the AAOS
+constraints explicit, avoids dragging Wear/GMS into the car artifact, and gives a smaller
+surface for Play quality review. It also avoids spending time extracting a core from a
+large app before proving the car UI model.
 
 ## What the latest source already has
 
@@ -133,7 +208,10 @@ gating unknowns because the vehicle JSON was not committed to this repository.
 | Android Auto metadata/Wear | Do not include in AAOS artifact | Different platform; avoid manifest/UI conflicts |
 | Voice/search | Required for a Car App Library media app quality review | VC-1/MFT requirements if templates are used |
 
-## Architecture changes needed
+## Architecture if the older module-port route were chosen
+
+This section is retained as evidence for why a clean-room rewrite is preferred. It is not
+the current plan.
 
 1. Extract a shared `:core` (or `:media-core`) module from the current `app`: LMS connection,
    CometD models, player state, MediaSession control, preferences/server config, and optional
@@ -162,20 +240,22 @@ gating unknowns because the vehicle JSON was not committed to this repository.
 
 ## Verdict
 
-- **Possible?** Yes, technically. The core network and Media3 playback code is reusable.
+- **Possible?** Yes, technically. The protocol behavior and Media3 playback concepts are
+  reusable, but the phone UI and service graph are not the AAOS design.
+- **Recommended implementation?** A clean-room, native, lean AAOS app with a controller-only
+  v1 and selected features migrated as behavior, not as a UI/module port.
 - **Direct APK/manifest port?** No. The car UI and media browse integration are missing.
-- **Separate AAOS-only release?** **Yes, preferred and effectively required for a media app.**
-  Use a shared core and a dedicated `:automotive` module/artifact plus an AAOS-only track.
-  Reusing the package name is preferred; a separate package is an optional business choice,
-  not a technical requirement.
+- **Separate AAOS-only release?** **Yes.** Build a separate AAOS-only artifact and use an
+  AAOS-only track. A separate package is optional; same package keeps one listing but ties
+  review/versioning together. A new repo/app package is reasonable for a clean-room rewrite.
 - **Templated UI for internal testing?** Yes, but only while Google keeps media templates in
   beta/internal-closed testing.
-- **Production-ready today?** Not with the current phone UI or templated beta. The classic
+- **Production-ready today?** Not with the phone UI or templated beta. The classic
   MediaBrowser/MediaLibraryService path is the production-compatible route, but it means
   accepting the car host's media UI.
 - **Trim/disable first:** Wear/GMS, phone UI, slideshow/motion effects, device-volume mode,
-  boot auto-start, and likely local playback/downloads until the LYRIQ probe and an AAOS
-  media build prove them.
+  boot auto-start, and local playback/downloads until the LYRIQ probe and an AAOS media build
+  prove them.
 
 ## Evidence needed to move from decision to implementation
 
